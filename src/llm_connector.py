@@ -1,16 +1,17 @@
 import os
 from typing import List, Dict
 import yaml
-from dotenv import load_dotenv
 import requests
 import openai
+import pandas as pd
+from distance_calculator import DistanceCalculator
 
 class LLMConnector:
     def __init__(self, config_path: str = "config/settings.yaml"):
-        load_dotenv()
         self.config = self._load_config(config_path)
         self.provider = self.config['llm']['provider']
         self._setup_provider()
+        self.distance_calculator = DistanceCalculator()
     
     def _load_config(self, config_path: str) -> Dict:
         """Carga la configuración desde el archivo YAML."""
@@ -46,7 +47,7 @@ class LLMConnector:
                        ciudades_preferencia: List[str],
                        datos_centros: List[Dict]) -> str:
         """
-        Genera el prompt para el LLM.
+        Genera la lista ordenada de localidades.
         
         Args:
             tipo_centro: Tipo de centro educativo
@@ -55,56 +56,65 @@ class LLMConnector:
             datos_centros: Lista de diccionarios con datos de los centros
             
         Returns:
-            str con el prompt generado
+            str con la lista ordenada
         """
-        prompt = f"""# Generación de Lista Ordenada de Localidades
-
-## Tarea Principal
-Genera UNA LISTA NUMERADA de todas las localidades que tienen {tipo_centro} públicos en las provincias de {', '.join(provincias)} de Andalucía, ordenadas por proximidad geográfica a mis localidades de referencia.
-
-## Datos Disponibles
-Información de los centros:
-{self._format_centros_data(datos_centros)}
-
-## Puntos de Referencia (en orden de prioridad)
-{self._format_ciudades_preferencia(ciudades_preferencia)}
-
-## Instrucciones de Ordenamiento
-1. Comienza con {ciudades_preferencia[0]} y lista TODAS las localidades por proximidad a ella
-2. Cuando una localidad esté más lejos de {ciudades_preferencia[0]} que de {ciudades_preferencia[1]}, cambia a ordenar por proximidad a {ciudades_preferencia[1]}
-3. Repite el proceso para cada punto de referencia
-4. Cada localidad debe aparecer SOLO UNA VEZ en la lista
-
-## Ejemplo de Ordenamiento (Zona de Granada)
-Si {ciudades_preferencia[0]} es La Zubia, el orden debería ser aproximadamente así:
-1. La Zubia (Granada)
-2. Cájar (Granada) - pueblo contiguo
-3. Monachil (Granada) - pueblo contiguo
-4. Huétor Vega (Granada) - pueblo contiguo
-5. Granada (Granada) - ciudad capital
-6. Armilla (Granada) - área metropolitana
-7. Maracena (Granada) - área metropolitana
-8. Albolote (Granada) - área metropolitana
-9. Churriana de la Vega (Granada) - área metropolitana
-10. Ogíjares (Granada) - área metropolitana
-...y así sucesivamente con el resto de localidades
-
-## Formato de Respuesta Requerido
-RESPONDE ÚNICAMENTE CON UNA LISTA NUMERADA en este formato:
-1. [Localidad] ([Provincia])
-2. [Localidad] ([Provincia])
-...
-
-IMPORTANTE:
-- NO incluyas explicaciones ni comentarios
-- NO incluyas el proceso de ordenamiento en la respuesta
-- SOLO genera la lista numerada de localidades
-- Al final de la lista, puedes añadir una breve nota sobre localidades cercanas sin {tipo_centro} públicos
-- Asegúrate de que las localidades del área metropolitana aparezcan PRIMERO si están más cerca del punto de referencia
-
-Asume que tienes acceso a coordenadas geográficas para calcular las distancias."""
+        # Convertir los datos a DataFrame y asegurarnos de que tiene las columnas correctas
+        df = pd.DataFrame(datos_centros)
         
-        return prompt
+        # Asegurarnos de que las columnas tienen los nombres correctos
+        df = df.rename(columns={
+            'codigo': 'Código',
+            'nombre': 'Nombre',
+            'localidad': 'Localidad',
+            'municipio': 'Municipio',
+            'provincia': 'Provincia',
+            'direccion': 'Dirección',
+            'codigo_postal': 'Código Postal'
+        })
+        
+        # Ordenar las localidades usando el DistanceCalculator
+        self.reference_locations = [{'Localidad': ciudad, 'Provincia': 'Granada'} for ciudad in ciudades_preferencia]
+        all_localities = self.distance_calculator.get_unique_localities(df)
+        sorted_localities = self.distance_calculator.sort_localities_by_distance(self.reference_locations, all_localities)
+        
+        # Devolver solo la lista ordenada
+        return self._format_sorted_localities(sorted_localities)
+    
+    def _format_sorted_localities(self, sorted_localities: List[Dict]) -> str:
+        """
+        Formatea la lista ordenada de localidades incluyendo la ciudad de referencia y la distancia.
+        
+        Args:
+            sorted_localities: Lista de diccionarios con localidades ordenadas
+            
+        Returns:
+            str con la lista formateada
+        """
+        formatted_list = []
+        for i, loc in enumerate(sorted_localities):
+            # Calcular la distancia a cada ciudad de referencia
+            distances = []
+            for ref_loc in self.reference_locations:
+                try:
+                    distance = self.distance_calculator.get_distance(
+                        ref_loc['Localidad'], ref_loc['Provincia'],
+                        loc['Localidad'], loc['Provincia']
+                    )
+                    distances.append((ref_loc['Localidad'], distance))
+                except Exception as e:
+                    print(f"Error calculando distancia: {str(e)}")
+                    distances.append((ref_loc['Localidad'], float('inf')))
+            
+            # Encontrar la ciudad de referencia más cercana
+            closest_ref = min(distances, key=lambda x: x[1])
+            
+            # Formatear la línea con la información de distancia
+            formatted_list.append(
+                f"{i+1}. {loc['Localidad']} ({loc['Provincia']}) - "
+                f"Cerca de {closest_ref[0]} ({closest_ref[1]:.1f} km)"
+            )
+        
+        return "\n".join(formatted_list)
     
     def _format_centros_data(self, datos_centros: List[Dict]) -> str:
         """Formatea los datos de los centros para el prompt."""
@@ -137,15 +147,8 @@ Ejemplo de datos de centro:
         Returns:
             str con la respuesta del LLM
         """
-        try:
-            if self.provider == 'mistral':
-                return self._process_with_mistral(prompt)
-            elif self.provider == 'openai':
-                return self._process_with_openai(prompt)
-            else:
-                raise ValueError(f"Proveedor no soportado: {self.provider}")
-        except Exception as e:
-            return f"Error al procesar con el LLM: {str(e)}"
+        # En este caso, el prompt ya es la lista ordenada, así que lo devolvemos directamente
+        return prompt
     
     def _process_with_mistral(self, prompt: str) -> str:
         """Procesa el prompt usando la API de Mistral."""

@@ -37,5 +37,5 @@ ENV/
 /saved_configs/*
 !/saved_configs/.gitkeep
 .env
-config/*.yaml
+config/settings.yaml
 !config/settings.example.yaml
