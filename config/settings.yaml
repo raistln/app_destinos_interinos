@@ -1,0 +1,40 @@
+# Configuración del modelo LLM
+llm:
+  provider: mistral  # Opciones: mistral, openai
+  models:
+    mistral:
+      name: mistral-large-latest
+      api_key: ${MISTRAL_API_KEY}
+      api_url: https://api.mistral.ai/v1/chat/completions
+    openai:
+      name: gpt-3.5-turbo
+      api_key: ${OPENAI_API_KEY}
+      api_url: https://api.openai.com/v1/chat/completions
+  temperature: 0.7
+  max_tokens: 1000
+
+# Configuración de la interfaz
+ui:
+  theme: light
+  language: es
+  show_debug_info: false
+
+# Configuración de datos
+data:
+  base_path: data
+  file_types:
+    - institutos.csv
+    - colegios.csv
+  required_columns:
+    - codigo
+    - nombre
+    - localidad
+    - municipio
+    - provincia
+    - direccion
+    - codigo_postal
+
+# Configuración de guardado
+saved_configs:
+  path: saved_configs
+  format: yaml 
