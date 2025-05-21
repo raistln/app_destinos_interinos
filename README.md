@@ -36,11 +36,17 @@ source venv/bin/activate  # En Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Crea un archivo `.env` en la raíz del proyecto con tus API keys:
-```
-MISTRAL_API_KEY=tu_api_key_de_mistral
-OPENAI_API_KEY=tu_api_key_de_openai
-```
+4. Configura el entorno:
+   - Copia el archivo de ejemplo de configuración:
+     ```bash
+     cp config/settings.example.yaml config/settings.yaml
+     ```
+   - Crea un archivo `.env` en la raíz del proyecto con tus API keys:
+     ```
+     MISTRAL_API_KEY=tu_api_key_de_mistral
+     OPENAI_API_KEY=tu_api_key_de_openai
+     ```
+   - Edita `config/settings.yaml` según tus necesidades
 
 ## Estructura de Datos
 
@@ -86,14 +92,27 @@ streamlit run src/main.py
 
 ## Configuración
 
-La aplicación soporta tanto Mistral como OpenAI para el procesamiento de la proximidad geográfica. Puedes configurar:
+La aplicación soporta tanto Mistral como OpenAI para el procesamiento de la proximidad geográfica. La configuración se realiza en el archivo `config/settings.yaml`:
 
-- El proveedor de LLM (Mistral u OpenAI)
-- El modelo específico a utilizar
-- La temperatura del modelo (por defecto: 0.7)
-- El número máximo de tokens (por defecto: 1000)
+1. Selecciona el proveedor de LLM:
+   ```yaml
+   llm:
+     provider: mistral  # o 'openai'
+   ```
 
-La configuración se realiza en el archivo `config/settings.yaml`.
+2. Configura los parámetros del modelo:
+   ```yaml
+   llm:
+     temperature: 0.7  # Ajusta según necesites
+     max_tokens: 1000  # Ajusta según necesites
+   ```
+
+3. Personaliza la interfaz:
+   ```yaml
+   ui:
+     theme: light  # o 'dark'
+     language: es
+   ```
 
 ## Contribuir
 
