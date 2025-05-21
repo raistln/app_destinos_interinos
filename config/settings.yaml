@@ -3,8 +3,8 @@ llm:
   provider: mistral  # Opciones: mistral, openai
   models:
     mistral:
-      name: mistral-large-latest
-      api_key: ${MISTRAL_API_KEY}
+      name: mistral-small-2503
+      api_key: o6MeatvTv1WsTlT6hG4Ld1soJbl8ppjk
       api_url: https://api.mistral.ai/v1/chat/completions
     openai:
       name: gpt-3.5-turbo

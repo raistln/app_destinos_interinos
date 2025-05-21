@@ -22,9 +22,9 @@ class LLMConnector:
         provider_config = self.config['llm']['models'][self.provider]
         
         if self.provider == 'mistral':
-            self.api_key = os.getenv("MISTRAL_API_KEY")
+            self.api_key = provider_config['api_key']
             if not self.api_key:
-                raise ValueError("MISTRAL_API_KEY no encontrada en las variables de entorno")
+                raise ValueError("API key de Mistral no encontrada en la configuración")
             self.api_url = provider_config['api_url']
             self.model = provider_config['name']
             self.headers = {
@@ -32,9 +32,9 @@ class LLMConnector:
                 "Content-Type": "application/json"
             }
         elif self.provider == 'openai':
-            self.api_key = os.getenv("OPENAI_API_KEY")
+            self.api_key = provider_config['api_key']
             if not self.api_key:
-                raise ValueError("OPENAI_API_KEY no encontrada en las variables de entorno")
+                raise ValueError("API key de OpenAI no encontrada en la configuración")
             openai.api_key = self.api_key
             self.model = provider_config['name']
         else:
@@ -57,24 +57,52 @@ class LLMConnector:
         Returns:
             str con el prompt generado
         """
-        prompt = f"""Estoy procesando datos de centros educativos {tipo_centro} públicos en las provincias de {', '.join(provincias)} de Andalucía.
+        prompt = f"""# Generación de Lista Ordenada de Localidades
 
-Tengo la siguiente información sobre cada centro:
+## Tarea Principal
+Genera UNA LISTA NUMERADA de todas las localidades que tienen {tipo_centro} públicos en las provincias de {', '.join(provincias)} de Andalucía, ordenadas por proximidad geográfica a mis localidades de referencia.
+
+## Datos Disponibles
+Información de los centros:
 {self._format_centros_data(datos_centros)}
 
-Necesito una lista numerada y única de todas las localidades con {tipo_centro} públicos, ordenadas según su proximidad geográfica a mis localidades de preferencia, que en orden descendente de prioridad son:
-
+## Puntos de Referencia (en orden de prioridad)
 {self._format_ciudades_preferencia(ciudades_preferencia)}
 
-El ordenamiento debe funcionar así:
-- Inicialmente, priorizar localidades cercanas a {ciudades_preferencia[0]}.
-- Cuando una localidad es significativamente más cercana a una ciudad de menor prioridad que a {ciudades_preferencia[0]}, ordenarla según esa otra ciudad.
-- Cada localidad debe aparecer solo una vez en la posición más favorable según este sistema.
-- Incluir también las propias ciudades de preferencia en la lista resultante, en la posición que les corresponda.
+## Instrucciones de Ordenamiento
+1. Comienza con {ciudades_preferencia[0]} y lista TODAS las localidades por proximidad a ella
+2. Cuando una localidad esté más lejos de {ciudades_preferencia[0]} que de {ciudades_preferencia[1]}, cambia a ordenar por proximidad a {ciudades_preferencia[1]}
+3. Repite el proceso para cada punto de referencia
+4. Cada localidad debe aparecer SOLO UNA VEZ en la lista
 
-Genera una lista numerada con el formato: "Número. Localidad (Provincia)"
+## Ejemplo de Ordenamiento (Zona de Granada)
+Si {ciudades_preferencia[0]} es La Zubia, el orden debería ser aproximadamente así:
+1. La Zubia (Granada)
+2. Cájar (Granada) - pueblo contiguo
+3. Monachil (Granada) - pueblo contiguo
+4. Huétor Vega (Granada) - pueblo contiguo
+5. Granada (Granada) - ciudad capital
+6. Armilla (Granada) - área metropolitana
+7. Maracena (Granada) - área metropolitana
+8. Albolote (Granada) - área metropolitana
+9. Churriana de la Vega (Granada) - área metropolitana
+10. Ogíjares (Granada) - área metropolitana
+...y así sucesivamente con el resto de localidades
 
-Adicionalmente, si hay alguna localidad pequeña cercana a mis preferencias que NO tenga {tipo_centro} públicos, menciónala brevemente al final."""
+## Formato de Respuesta Requerido
+RESPONDE ÚNICAMENTE CON UNA LISTA NUMERADA en este formato:
+1. [Localidad] ([Provincia])
+2. [Localidad] ([Provincia])
+...
+
+IMPORTANTE:
+- NO incluyas explicaciones ni comentarios
+- NO incluyas el proceso de ordenamiento en la respuesta
+- SOLO genera la lista numerada de localidades
+- Al final de la lista, puedes añadir una breve nota sobre localidades cercanas sin {tipo_centro} públicos
+- Asegúrate de que las localidades del área metropolitana aparezcan PRIMERO si están más cerca del punto de referencia
+
+Asume que tienes acceso a coordenadas geográficas para calcular las distancias."""
         
         return prompt
     
