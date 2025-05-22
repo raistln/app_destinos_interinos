@@ -100,6 +100,7 @@ class DistanceCalculator:
                         # La distancia viene en metros, convertir a kilómetros
                         distance = data['routes'][0]['distance'] / 1000
                         self.distance_cache[cache_key] = distance
+                        print(f"Distancia calculada entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
                         return distance
                 
                 # Si OSRM falla, usar distancia en línea recta como fallback
@@ -114,20 +115,22 @@ class DistanceCalculator:
                 distance = geodesic(coords1, coords2).kilometers
                 self.distance_cache[cache_key] = distance
                 return distance
-                
-        return float('inf')
+        else:
+            print(f"ADVERTENCIA: No se pudieron obtener coordenadas para {location1} o {location2}")
+            return float('inf')
         
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza los nombres de las columnas del DataFrame."""
         # Mapeo exacto de las columnas que tenemos
         column_mapping = {
-            'Código': ['codigo'],
-            'Nombre': ['nombre'],
-            'Localidad': ['localidad'],
-            'Municipio': ['municipio'],
-            'Provincia': ['provincia'],
-            'Dirección': ['direccion'],
-            'Código Postal': ['codigo_postal']
+            'Código': ['codigo', 'Código'],
+            'Denominación': ['denominacion', 'Denominación'],
+            'Nombre': ['nombre', 'Nombre'],
+            'Dependencia': ['dependencia', 'Dependencia'],
+            'Localidad': ['localidad', 'Localidad'],
+            'Municipio': ['municipio', 'Municipio'],
+            'Provincia': ['provincia', 'Provincia'],
+            'Código Postal': ['codigo_postal', 'Cód.Postal']
         }
         
         # Crear un nuevo DataFrame con las columnas normalizadas
@@ -142,12 +145,25 @@ class DistanceCalculator:
         
         return normalized_df
         
-    def load_centers_data(self, data_path: str) -> pd.DataFrame:
-        """Carga los datos de los centros desde los archivos CSV."""
+    def load_centers_data(self, data_path: str, provincias_seleccionadas: List[str] = None) -> pd.DataFrame:
+        """
+        Carga los datos de los centros desde los archivos CSV.
+        
+        Args:
+            data_path: Ruta al directorio de datos
+            provincias_seleccionadas: Lista de provincias a cargar. Si es None, carga todas.
+            
+        Returns:
+            DataFrame con los datos de los centros
+        """
         all_data = []
         
-        # Recorrer todos los directorios de provincias
-        for province_dir in os.listdir(data_path):
+        # Si no se especifican provincias, usar todas las disponibles
+        if provincias_seleccionadas is None:
+            provincias_seleccionadas = [d for d in os.listdir(data_path) if os.path.isdir(os.path.join(data_path, d))]
+        
+        # Recorrer los directorios de las provincias seleccionadas
+        for province_dir in provincias_seleccionadas:
             province_path = os.path.join(data_path, province_dir)
             if os.path.isdir(province_path):
                 # Buscar archivos CSV en el directorio de la provincia
@@ -155,7 +171,16 @@ class DistanceCalculator:
                     if file.endswith('.csv'):
                         file_path = os.path.join(province_path, file)
                         print(f"\nLeyendo archivo: {file_path}")
-                        df = pd.read_csv(file_path)
+                        try:
+                            # Intentar primero con UTF-8
+                            df = pd.read_csv(file_path, encoding='utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                # Si falla, intentar con Windows-1252
+                                df = pd.read_csv(file_path, encoding='windows-1252')
+                            except UnicodeDecodeError:
+                                # Si también falla, intentar con ISO-8859-1
+                                df = pd.read_csv(file_path, encoding='iso-8859-1')
                         print(f"Columnas originales: {df.columns.tolist()}")
                         # Normalizar nombres de columnas
                         df = self._normalize_column_names(df)
@@ -170,6 +195,24 @@ class DistanceCalculator:
         print("\nColumnas finales del DataFrame:", final_df.columns.tolist())
         return final_df
         
+    def _normalize_city_name(self, city_name: str) -> str:
+        """
+        Normaliza el nombre de una ciudad para que tenga el formato correcto.
+        Primera letra de cada palabra en mayúscula, resto en minúscula.
+        
+        Args:
+            city_name: Nombre de la ciudad a normalizar
+            
+        Returns:
+            Nombre normalizado
+        """
+        # Dividir por espacios y guiones
+        words = city_name.replace('-', ' ').split()
+        # Capitalizar cada palabra
+        normalized_words = [word.capitalize() for word in words]
+        # Unir las palabras
+        return ' '.join(normalized_words)
+
     def get_unique_localities(self, df: pd.DataFrame) -> List[Dict]:
         """Obtiene una lista única de localidades con sus provincias."""
         # Asegurarse de que las columnas necesarias existen
@@ -179,9 +222,22 @@ class DistanceCalculator:
         if missing_columns:
             print("Columnas disponibles:", df.columns.tolist())
             raise ValueError(f"Faltan las siguientes columnas en el DataFrame: {missing_columns}")
-            
+        
+        # Normalizar los nombres de las localidades
+        df['Localidad'] = df['Localidad'].apply(self._normalize_city_name)
+        
+        # Obtener localidades únicas y convertirlas a diccionario
         unique_localities = df[required_columns].drop_duplicates()
-        return unique_localities.to_dict('records')
+        
+        # Convertir a lista de diccionarios y asegurar que los valores son strings
+        result = []
+        for _, row in unique_localities.iterrows():
+            result.append({
+                'Localidad': str(row['Localidad']),
+                'Provincia': str(row['Provincia'])
+            })
+        
+        return result
         
     def sort_localities_by_distance(self, reference_locations: List[Dict], localities: List[Dict]) -> List[Dict]:
         """
@@ -194,18 +250,29 @@ class DistanceCalculator:
         Returns:
             Lista ordenada de localidades
         """
+        print("\nIniciando ordenación de localidades...")
+        print(f"Número de localidades de referencia: {len(reference_locations)}")
+        print(f"Número total de localidades a ordenar: {len(localities)}")
+        
         # Crear un conjunto de todas las localidades (incluyendo las de referencia)
         all_localities = []
         reference_cities = {loc['Localidad']: loc for loc in reference_locations}
         
         # Añadir primero las localidades de referencia
         for ref_loc in reference_locations:
-            all_localities.append(ref_loc)
+            all_localities.append({
+                'Localidad': str(ref_loc['Localidad']),
+                'Provincia': str(ref_loc['Provincia'])
+            })
+            print(f"Añadida localidad de referencia: {ref_loc['Localidad']} ({ref_loc['Provincia']})")
         
         # Añadir el resto de localidades
         for loc in localities:
             if loc['Localidad'] not in reference_cities:
-                all_localities.append(loc)
+                all_localities.append({
+                    'Localidad': str(loc['Localidad']),
+                    'Provincia': str(loc['Provincia'])
+                })
         
         # Para cada localidad, calcular su distancia a cada punto de referencia
         locality_distances = []
@@ -218,6 +285,7 @@ class DistanceCalculator:
                         locality['Localidad'], locality['Provincia']
                     )
                     distances.append((ref_loc['Localidad'], distance))
+                    print(f"Distancia entre {locality['Localidad']} ({locality['Provincia']}) y {ref_loc['Localidad']} ({ref_loc['Provincia']}): {distance:.1f} km")
                 except Exception as e:
                     print(f"Error calculando distancia entre {ref_loc['Localidad']} y {locality['Localidad']}: {str(e)}")
                     distances.append((ref_loc['Localidad'], float('inf')))
@@ -234,6 +302,7 @@ class DistanceCalculator:
                     closest_ref_name = ref_name
             
             locality_distances.append((locality, min_distance, closest_ref_index, closest_ref_name))
+            print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) más cercana a {closest_ref_name} (índice {closest_ref_index})")
         
         # Ordenar las localidades:
         # 1. Primero por el índice de la localidad de referencia más cercana (prioridad)
@@ -288,5 +357,10 @@ class DistanceCalculator:
         # Añadir cualquier localidad que se haya quedado sin asignar
         remaining = [loc for loc in sorted_localities if loc not in final_order]
         final_order.extend(remaining)
+        
+        # Imprimir el orden final
+        print("\nOrden final de localidades:")
+        for i, loc in enumerate(final_order):
+            print(f"{i+1}. {loc['Localidad']} ({loc['Provincia']})")
         
         return final_order 

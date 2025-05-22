@@ -41,6 +41,24 @@ class LLMConnector:
         else:
             raise ValueError(f"Proveedor no soportado: {self.provider}")
     
+    def _normalize_city_name(self, city_name: str) -> str:
+        """
+        Normaliza el nombre de una ciudad para que tenga el formato correcto.
+        Primera letra de cada palabra en mayúscula, resto en minúscula.
+        
+        Args:
+            city_name: Nombre de la ciudad a normalizar
+            
+        Returns:
+            Nombre normalizado
+        """
+        # Dividir por espacios y guiones
+        words = city_name.replace('-', ' ').split()
+        # Capitalizar cada palabra
+        normalized_words = [word.capitalize() for word in words]
+        # Unir las palabras
+        return ' '.join(normalized_words)
+
     def generate_prompt(self, 
                        tipo_centro: str,
                        provincias: List[str],
@@ -61,20 +79,57 @@ class LLMConnector:
         # Convertir los datos a DataFrame y asegurarnos de que tiene las columnas correctas
         df = pd.DataFrame(datos_centros)
         
+        # Normalizar los nombres de las ciudades en el DataFrame
+        df['Localidad'] = df['Localidad'].apply(self._normalize_city_name)
+        
+        # Verificar que tenemos datos de todas las provincias seleccionadas
+        provincias_en_datos = df['Provincia'].unique()
+        print(f"Provincias en los datos: {provincias_en_datos}")
+        print(f"Provincias seleccionadas: {provincias}")
+        
         # Asegurarnos de que las columnas tienen los nombres correctos
         df = df.rename(columns={
             'codigo': 'Código',
+            'denominacion': 'Denominación',
             'nombre': 'Nombre',
+            'dependencia': 'Dependencia',
             'localidad': 'Localidad',
             'municipio': 'Municipio',
             'provincia': 'Provincia',
-            'direccion': 'Dirección',
             'codigo_postal': 'Código Postal'
         })
         
+        # Crear las localidades de referencia con sus provincias correctas
+        self.reference_locations = []
+        for ciudad in ciudades_preferencia:
+            # Normalizar el nombre de la ciudad
+            ciudad_normalizada = self._normalize_city_name(ciudad)
+            # Buscar la ciudad en el DataFrame para obtener su provincia
+            ciudad_data = df[df['Localidad'].str.lower() == ciudad_normalizada.lower()]
+            if not ciudad_data.empty:
+                provincia = ciudad_data.iloc[0]['Provincia']
+            else:
+                # Si no se encuentra en el DataFrame, buscar en las provincias seleccionadas
+                provincia = next((p for p in provincias if ciudad_normalizada.lower() in p.lower()), provincias[0])
+            self.reference_locations.append({'Localidad': ciudad_normalizada, 'Provincia': provincia})
+            print(f"Ciudad de referencia: {ciudad_normalizada} ({provincia})")
+        
         # Ordenar las localidades usando el DistanceCalculator
-        self.reference_locations = [{'Localidad': ciudad, 'Provincia': 'Granada'} for ciudad in ciudades_preferencia]
         all_localities = self.distance_calculator.get_unique_localities(df)
+        print(f"Número total de localidades a ordenar: {len(all_localities)}")
+        
+        # Verificar que tenemos localidades de todas las provincias
+        localidades_por_provincia = {}
+        for loc in all_localities:
+            prov = loc['Provincia']
+            if prov not in localidades_por_provincia:
+                localidades_por_provincia[prov] = []
+            localidades_por_provincia[prov].append(loc['Localidad'])
+        
+        print("Localidades por provincia:")
+        for prov, locs in localidades_por_provincia.items():
+            print(f"{prov}: {len(locs)} localidades")
+        
         sorted_localities = self.distance_calculator.sort_localities_by_distance(self.reference_locations, all_localities)
         
         # Devolver solo la lista ordenada
@@ -124,13 +179,14 @@ class LLMConnector:
         ejemplo = datos_centros[0]
         return f"""
 Ejemplo de datos de centro:
-- Código: {ejemplo.get('codigo', 'N/A')}
-- Nombre: {ejemplo.get('nombre', 'N/A')}
-- Localidad: {ejemplo.get('localidad', 'N/A')}
-- Municipio: {ejemplo.get('municipio', 'N/A')}
-- Provincia: {ejemplo.get('provincia', 'N/A')}
-- Dirección: {ejemplo.get('direccion', 'N/A')}
-- Código Postal: {ejemplo.get('codigo_postal', 'N/A')}
+- Código: {ejemplo.get('Código', 'N/A')}
+- Denominación: {ejemplo.get('Denominación', 'N/A')}
+- Nombre: {ejemplo.get('Nombre', 'N/A')}
+- Dependencia: {ejemplo.get('Dependencia', 'N/A')}
+- Localidad: {ejemplo.get('Localidad', 'N/A')}
+- Municipio: {ejemplo.get('Municipio', 'N/A')}
+- Provincia: {ejemplo.get('Provincia', 'N/A')}
+- Código Postal: {ejemplo.get('Código Postal', 'N/A')}
 """
     
     def _format_ciudades_preferencia(self, ciudades: List[str]) -> str:

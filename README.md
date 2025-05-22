@@ -64,13 +64,21 @@ La aplicación espera encontrar los datos de los centros educativos en la siguie
 ```
 
 Cada archivo CSV debe contener al menos las siguientes columnas:
-- codigo
-- nombre
-- localidad
-- municipio
-- provincia
-- direccion (opcional)
-- codigo_postal
+- Código
+- Denominación
+- Nombre
+- Dependencia
+- Localidad
+- Municipio
+- Provincia
+- Código Postal
+
+Las siguientes columnas son opcionales y no se utilizarán en el procesamiento:
+- Domicilio
+- Teléfono
+- Enseñanzas
+- Servicios
+- Biling
 
 ## Uso
 

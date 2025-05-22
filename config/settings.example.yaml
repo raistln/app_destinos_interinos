@@ -27,11 +27,12 @@ data:
     - colegios.csv
   required_columns:
     - codigo
+    - denominacion
     - nombre
+    - dependencia
     - localidad
     - municipio
     - provincia
-    - direccion
     - codigo_postal
 
 # Configuración de guardado

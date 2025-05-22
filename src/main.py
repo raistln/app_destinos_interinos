@@ -102,6 +102,11 @@ else:
             if df.empty:
                 st.error("No se encontraron datos para las provincias seleccionadas.")
             else:
+                # Mostrar información de depuración
+                st.write(f"Provincias seleccionadas: {provincias_seleccionadas}")
+                st.write(f"Número total de registros: {len(df)}")
+                st.write(f"Registros por provincia: {df['Provincia'].value_counts().to_dict()}")
+                
                 # Procesar preferencias
                 ciudades_lista = [c.strip() for c in ciudades.split("\n") if c.strip()]
                 datos_centros = df.to_dict("records")
