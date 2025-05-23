@@ -73,51 +73,60 @@ class DistanceCalculator:
         Calcula la distancia por carretera entre dos localidades en kilómetros usando OSRM.
         
         Args:
-            location1: Primera localidad
+            location1: Nombre de la primera localidad
             province1: Provincia de la primera localidad
-            location2: Segunda localidad
+            location2: Nombre de la segunda localidad
             province2: Provincia de la segunda localidad
             
         Returns:
             Distancia en kilómetros
         """
-        cache_key = (f"{location1}, {province1}", f"{location2}, {province2}")
+        # Crear clave para el caché
+        cache_key = tuple(sorted([
+            f"{location1}, {province1}",
+            f"{location2}, {province2}"
+        ]))
+        
+        # Verificar si la distancia está en caché
         if cache_key in self.distance_cache:
             return self.distance_cache[cache_key]
-            
-        coords1 = self._get_coordinates(location1, province1)
-        coords2 = self._get_coordinates(location2, province2)
         
-        if coords1 and coords2:
+        try:
+            # Obtener coordenadas
+            coords1 = self._get_coordinates(location1, province1)
+            coords2 = self._get_coordinates(location2, province2)
+            
+            if coords1 is None or coords2 is None:
+                raise ValueError("No se pudieron obtener las coordenadas para alguna de las localidades")
+            
+            # Construir la URL para OSRM
+            url = f"{self.osrm_url}/{coords1[1]},{coords1[0]};{coords2[1]},{coords2[0]}"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data['code'] == 'Ok':
+                    # La distancia viene en metros, convertir a kilómetros
+                    distance = data['routes'][0]['distance'] / 1000
+                    self.distance_cache[cache_key] = distance
+                    print(f"Distancia por carretera entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
+                    return distance
+            
+            # Si OSRM falla, usar distancia en línea recta como fallback
+            print(f"ADVERTENCIA: OSRM falló para {location1}-{location2}, usando distancia en línea recta")
+            distance = geodesic(coords1, coords2).kilometers
+            self.distance_cache[cache_key] = distance
+            return distance
+            
+        except Exception as e:
+            print(f"Error al calcular distancia por carretera entre {location1} y {location2}: {str(e)}")
+            # Fallback a distancia en línea recta
             try:
-                # Construir la URL para OSRM
-                url = f"{self.osrm_url}/{coords1[1]},{coords1[0]};{coords2[1]},{coords2[0]}"
-                response = requests.get(url)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data['code'] == 'Ok':
-                        # La distancia viene en metros, convertir a kilómetros
-                        distance = data['routes'][0]['distance'] / 1000
-                        self.distance_cache[cache_key] = distance
-                        print(f"Distancia calculada entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
-                        return distance
-                
-                # Si OSRM falla, usar distancia en línea recta como fallback
-                print(f"ADVERTENCIA: OSRM falló para {location1}-{location2}, usando distancia en línea recta")
                 distance = geodesic(coords1, coords2).kilometers
                 self.distance_cache[cache_key] = distance
                 return distance
-                
-            except Exception as e:
-                print(f"Error al calcular distancia por carretera entre {location1} y {location2}: {str(e)}")
-                # Fallback a distancia en línea recta
-                distance = geodesic(coords1, coords2).kilometers
-                self.distance_cache[cache_key] = distance
-                return distance
-        else:
-            print(f"ADVERTENCIA: No se pudieron obtener coordenadas para {location1} o {location2}")
-            return float('inf')
+            except:
+                return float('inf')
         
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza los nombres de las columnas del DataFrame."""
@@ -256,15 +265,16 @@ class DistanceCalculator:
         
         # Crear un conjunto de todas las localidades (incluyendo las de referencia)
         all_localities = []
-        reference_cities = {loc['Localidad']: loc for loc in reference_locations}
+        reference_cities = {loc['nombre']: loc for loc in reference_locations}
         
         # Añadir primero las localidades de referencia
         for ref_loc in reference_locations:
             all_localities.append({
-                'Localidad': str(ref_loc['Localidad']),
-                'Provincia': str(ref_loc['Provincia'])
+                'Localidad': str(ref_loc['nombre']),
+                'Provincia': str(ref_loc['Provincia']),
+                'radio': ref_loc.get('radio', 50)  # Radio por defecto de 50km
             })
-            print(f"Añadida localidad de referencia: {ref_loc['Localidad']} ({ref_loc['Provincia']})")
+            print(f"Añadida localidad de referencia: {ref_loc['nombre']} ({ref_loc['Provincia']}) con radio {ref_loc.get('radio', 50)}km")
         
         # Añadir el resto de localidades
         for loc in localities:
@@ -281,14 +291,19 @@ class DistanceCalculator:
             for ref_loc in reference_locations:
                 try:
                     distance = self.get_distance(
-                        ref_loc['Localidad'], ref_loc['Provincia'],
+                        ref_loc['nombre'], ref_loc['Provincia'],
                         locality['Localidad'], locality['Provincia']
                     )
-                    distances.append((ref_loc['Localidad'], distance))
-                    print(f"Distancia entre {locality['Localidad']} ({locality['Provincia']}) y {ref_loc['Localidad']} ({ref_loc['Provincia']}): {distance:.1f} km")
+                    # Verificar si la localidad está dentro del radio de la ciudad de referencia
+                    if distance <= ref_loc.get('radio', 50):
+                        distances.append((ref_loc['nombre'], distance))
+                        print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) dentro del radio de {ref_loc['nombre']} ({distance:.1f} km)")
+                    else:
+                        print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) fuera del radio de {ref_loc['nombre']} ({distance:.1f} km > {ref_loc.get('radio', 50)} km)")
+                        distances.append((ref_loc['nombre'], float('inf')))
                 except Exception as e:
-                    print(f"Error calculando distancia entre {ref_loc['Localidad']} y {locality['Localidad']}: {str(e)}")
-                    distances.append((ref_loc['Localidad'], float('inf')))
+                    print(f"Error calculando distancia entre {ref_loc['nombre']} y {locality['Localidad']}: {str(e)}")
+                    distances.append((ref_loc['nombre'], float('inf')))
             
             # Encontrar la localidad de referencia más cercana y su índice
             min_distance = float('inf')
@@ -330,18 +345,22 @@ class DistanceCalculator:
                     
                 # Calcular distancias a las referencias actual y siguiente
                 dist_to_current = self.get_distance(
-                    current_ref['Localidad'], current_ref['Provincia'],
+                    current_ref['nombre'], current_ref['Provincia'],
                     loc['Localidad'], loc['Provincia']
                 )
                 
+                # Verificar si está dentro del radio de la referencia actual
+                if dist_to_current > current_ref.get('radio', 50):
+                    continue
+                
                 if next_ref:
                     dist_to_next = self.get_distance(
-                        next_ref['Localidad'], next_ref['Provincia'],
+                        next_ref['nombre'], next_ref['Provincia'],
                         loc['Localidad'], loc['Provincia']
                     )
                     
-                    # Si está más cerca de la siguiente referencia, dejarlo para el siguiente grupo
-                    if dist_to_next < dist_to_current:
+                    # Si está más cerca de la siguiente referencia y dentro de su radio, dejarlo para el siguiente grupo
+                    if dist_to_next < dist_to_current and dist_to_next <= next_ref.get('radio', 50):
                         continue
                 
                 current_group.append((loc, dist_to_current))

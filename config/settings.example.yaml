@@ -18,6 +18,9 @@ ui:
   theme: light
   language: es
   show_debug_info: false
+  default_radius: 50  # Radio por defecto en kilómetros para las ciudades de referencia
+  max_radius: 200     # Radio máximo permitido en kilómetros
+  min_radius: 1       # Radio mínimo permitido en kilómetros
 
 # Configuración de datos
 data:
