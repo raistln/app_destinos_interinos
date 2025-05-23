@@ -115,6 +115,6 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 
 ## Contacto
 
-[Tu Nombre] - [@tutwitter](https://twitter.com/tutwitter) - email@example.com
+Samuel - [@tutwitter](https://twitter.com/tutwitter) - email@example.com
 
 Link del proyecto: [https://github.com/tuusuario/preferencia_interinos_programa](https://github.com/tuusuario/preferencia_interinos_programa)
