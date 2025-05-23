@@ -1,130 +1,107 @@
-# Aplicación de Selección de Destinos para Interinos de Educación en Andalucía
+# Preferencia Interinos Programa
 
-Esta aplicación ayuda a los profesores interinos de Andalucía a ordenar sus preferencias de destinos durante o después de los procesos de oposición. Permite seleccionar provincias específicas, indicar localidades de preferencia, y generar una lista ordenada de posibles destinos basados en proximidad geográfica.
+Aplicación para ayudar a los interinos de educación en Andalucía a seleccionar sus destinos preferidos basándose en la proximidad a ciudades de referencia.
 
 ## Características
 
 - Selección de provincias andaluzas
-- Elección entre Institutos (IES) o Colegios (CEIP)
-- Ordenamiento de destinos según proximidad geográfica
+- Elección entre Institutos (IES) y Colegios (CEIP)
+- Configuración de ciudades de referencia con radios personalizables
+- Cálculo de distancias por carretera entre centros y ciudades de referencia
+- Ordenación de centros por proximidad a cada ciudad de referencia
+- Modo test para pruebas rápidas con 10 centros aleatorios
 - Guardado y carga de configuraciones
 - Exportación de resultados
-- Interfaz intuitiva y fácil de usar
 
 ## Requisitos
 
 - Python 3.8 o superior
-- pip (gestor de paquetes de Python)
-- Cuenta de OpenAI o Mistral (para el procesamiento con LLM)
+- Cuenta en Mistral AI para obtener una API key
 
 ## Instalación
 
-1. Clona este repositorio:
+1. Clonar el repositorio:
 ```bash
 git clone [URL_DEL_REPOSITORIO]
-cd [NOMBRE_DEL_DIRECTORIO]
+cd preferencia_interinos_programa
 ```
 
-2. Crea un entorno virtual e instálalo:
-```bash
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-```
-
-3. Instala las dependencias:
+2. Instalar las dependencias:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Configura el entorno:
-   - Copia el archivo de ejemplo de configuración:
-     ```bash
-     cp config/settings.example.yaml config/settings.yaml
+3. Configurar la API key de Mistral:
+   - Obtén tu API key de Mistral (ver sección "Obtener API Key de Mistral")
+   - Crea un archivo `config/settings.yaml` basado en `config/settings.example.yaml`
+   - Añade tu API key en el archivo de configuración
+
+## Obtener API Key de Mistral
+
+1. Regístrate en [Mistral AI](https://console.mistral.ai/)
+2. Una vez registrado, ve a la sección "API Keys"
+3. Crea una nueva API key
+4. Copia la API key generada
+5. Puedes usar la API key de dos formas:
+   - Añadirla directamente en la aplicación a través de la interfaz
+   - Configurarla en el archivo `config/settings.yaml`:
+     ```yaml
+     api:
+       mistral_api_key: "tu-api-key-aquí"
      ```
-   - Crea un archivo `.env` en la raíz del proyecto con tus API keys:
-     ```
-     MISTRAL_API_KEY=tu_api_key_de_mistral
-     OPENAI_API_KEY=tu_api_key_de_openai
-     ```
-   - Edita `config/settings.yaml` según tus necesidades
-
-## Estructura de Datos
-
-La aplicación espera encontrar los datos de los centros educativos en la siguiente estructura:
-
-```
-/data
-  /Almeria
-    - institutos.csv
-    - colegios.csv
-  /Cadiz
-    - institutos.csv
-    - colegios.csv
-  ...
-```
-
-Cada archivo CSV debe contener al menos las siguientes columnas:
-- Código
-- Denominación
-- Nombre
-- Dependencia
-- Localidad
-- Municipio
-- Provincia
-- Código Postal
-
-Las siguientes columnas son opcionales y no se utilizarán en el procesamiento:
-- Domicilio
-- Teléfono
-- Enseñanzas
-- Servicios
-- Biling
 
 ## Uso
 
-1. Inicia la aplicación:
+1. Ejecutar la aplicación:
 ```bash
 streamlit run src/main.py
 ```
 
-2. En el navegador, selecciona:
-   - Las provincias de interés
-   - El tipo de centro (IES o CEIP)
-   - Las ciudades de preferencia (una por línea, en orden de prioridad)
+2. En la interfaz:
+   - Introduce tu API key de Mistral (si no está en settings.yaml)
+   - Selecciona las provincias deseadas
+   - Elige el tipo de centro (IES o CEIP)
+   - Añade ciudades de referencia:
+     - Escribe el nombre de la ciudad
+     - Establece el radio en kilómetros (0 = sin límite)
+     - Usa el botón "+" para añadirla
+   - Opcionalmente, activa el "Modo test" para pruebas rápidas
+   - Haz clic en "Calcular Destinos"
 
-3. Haz clic en "Calcular Destinos" para procesar la información
-
-4. Opcionalmente:
-   - Guarda tu configuración para uso futuro
-   - Exporta los resultados como archivo de texto
+3. Los resultados mostrarán:
+   - Centros ordenados por proximidad a cada ciudad de referencia
+   - Distancias en kilómetros
+   - Opción para exportar los resultados
 
 ## Configuración
 
-La aplicación soporta tanto Mistral como OpenAI para el procesamiento de la proximidad geográfica. La configuración se realiza en el archivo `config/settings.yaml`:
+### Guardar Configuración
+1. Introduce un nombre para la configuración
+2. Haz clic en "Guardar"
 
-1. Selecciona el proveedor de LLM:
-   ```yaml
-   llm:
-     provider: mistral  # o 'openai'
-   ```
+### Cargar Configuración
+1. Introduce el nombre de la configuración guardada
+2. Haz clic en "Cargar"
 
-2. Configura los parámetros del modelo:
-   ```yaml
-   llm:
-     temperature: 0.7  # Ajusta según necesites
-     max_tokens: 1000  # Ajusta según necesites
-   ```
+## Estructura del Proyecto
 
-3. Personaliza la interfaz:
-   ```yaml
-   ui:
-     theme: light  # o 'dark'
-     language: es
-   ```
+```
+preferencia_interinos_programa/
+├── config/
+│   ├── settings.example.yaml
+│   └── settings.yaml
+├── data/
+│   └── centros_educativos.csv
+├── src/
+│   ├── main.py
+│   ├── llm_connector.py
+│   ├── distance_calculator.py
+│   └── processor.py
+├── requirements.txt
+└── README.md
+```
 
 ## Contribuir
-
-Las contribuciones son bienvenidas. Por favor, sigue estos pasos:
 
 1. Haz fork del repositorio
 2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
@@ -136,16 +113,8 @@ Las contribuciones son bienvenidas. Por favor, sigue estos pasos:
 
 Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
 
-La Licencia MIT es una licencia de software permisiva que permite:
-- Uso comercial
-- Modificación
-- Distribución
-- Uso privado
-
-Con las siguientes condiciones:
-- Incluir el aviso de copyright y la licencia en todas las copias
-- No hay garantía de ningún tipo
-
 ## Contacto
 
-[Tu información de contacto aquí]
+[Tu Nombre] - [@tutwitter](https://twitter.com/tutwitter) - email@example.com
+
+Link del proyecto: [https://github.com/tuusuario/preferencia_interinos_programa](https://github.com/tuusuario/preferencia_interinos_programa)
