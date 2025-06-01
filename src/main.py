@@ -25,8 +25,10 @@ def load_or_create_settings(api_key=None):
     
     if settings_path.exists():
         with open(settings_path, 'r', encoding='utf-8') as f:
-            settings = yaml.safe_load(f)
+            settings = yaml.safe_load(f) or {}
             if api_key:
+                if 'api' not in settings:
+                    settings['api'] = {}
                 settings['api']['mistral_api_key'] = api_key
                 with open(settings_path, 'w', encoding='utf-8') as f:
                     yaml.dump(settings, f, allow_unicode=True)
@@ -34,8 +36,10 @@ def load_or_create_settings(api_key=None):
         # Si no existe settings.yaml, crear uno nuevo desde el ejemplo
         if example_path.exists():
             with open(example_path, 'r', encoding='utf-8') as f:
-                settings = yaml.safe_load(f)
+                settings = yaml.safe_load(f) or {}
                 if api_key:
+                    if 'api' not in settings:
+                        settings['api'] = {}
                     settings['api']['mistral_api_key'] = api_key
                 with open(settings_path, 'w', encoding='utf-8') as f:
                     yaml.dump(settings, f, allow_unicode=True)
@@ -65,6 +69,15 @@ with st.sidebar:
     # Campo para la API key de Mistral
     st.subheader("API Key de Mistral")
     mistral_api_key = st.text_input("API Key:", type="password", value="")
+    
+    # Si el usuario no introduce la clave, intentar cargarla de .env
+    if not mistral_api_key:
+        mistral_api_key = os.getenv("MISTRAL_API_KEY", "")
+    
+    # Si sigue sin haber clave, mostrar error y detener la app
+    if not mistral_api_key:
+        st.error("Por favor, introduce tu API key de Mistral para continuar.")
+        st.stop()
     
     # Cargar o crear settings
     settings = load_or_create_settings(mistral_api_key if mistral_api_key else None)

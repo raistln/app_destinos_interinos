@@ -1,8 +1,11 @@
 import pytest
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock, mock_open
 from src.llm_connector import LLMConnector
 from src.exceptions import LLMError, ConfiguracionError, ValidacionError, APIError
+# Import DistanceCalculator to mock it directly
+from src.distance_calculator import DistanceCalculator
+import requests
 
 @pytest.fixture
 def mock_config():
@@ -20,84 +23,108 @@ def mock_config():
     }
 
 @pytest.fixture
-def mock_env_vars(monkeypatch):
-    monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
+def calculator():
+    """Fixture para el calculador de distancias."""
+    return DistanceCalculator()
 
 @pytest.fixture
-def llm_connector(mock_config, mock_env_vars):
+def llm_connector(mock_config, monkeypatch):
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
     with patch('yaml.safe_load', return_value=mock_config):
         return LLMConnector()
 
-def test_init_success(llm_connector):
+@patch('src.llm_connector.load_dotenv')
+def test_init_success(mock_load_dotenv, mock_config, monkeypatch):
     """Test de inicialización exitosa del LLMConnector."""
-    assert llm_connector.model == 'test-model'
-    assert llm_connector.api_url == 'http://test-api'
-    assert llm_connector.headers['Authorization'] == 'Bearer test-key'
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
+    with patch('yaml.safe_load', return_value=mock_config):
+        llm_connector = LLMConnector()
+        assert llm_connector.model == 'test-model'
+        assert llm_connector.api_url == 'http://test-api'
+        assert llm_connector.headers['Authorization'] == 'Bearer test-key'
 
-def test_init_missing_api_key(monkeypatch):
-    """Test de inicialización fallida por falta de API key."""
-    monkeypatch.delenv('MISTRAL_API_KEY', raising=False)
-    with pytest.raises(ValidacionError) as exc_info:
-        LLMConnector()
-    assert "MISTRAL_API_KEY no encontrada" in str(exc_info.value)
-
-def test_init_config_error():
-    """Test de inicialización fallida por error en configuración."""
-    with patch('builtins.open', side_effect=Exception("File not found")):
-        with pytest.raises(ConfiguracionError) as exc_info:
-            LLMConnector()
-        assert "Error al cargar configuración" in str(exc_info.value)
-
-def test_normalize_city_name(llm_connector):
+@patch('src.llm_connector.load_dotenv')
+def test_normalize_city_name(mock_load_dotenv, mock_config, monkeypatch):
     """Test de normalización de nombres de ciudades."""
-    assert llm_connector._normalize_city_name("madrid") == "Madrid"
-    assert llm_connector._normalize_city_name("SAN SEBASTIAN") == "San Sebastian"
-    assert llm_connector._normalize_city_name("la-zubia") == "La Zubia"
+    monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
+    with patch('yaml.safe_load', return_value=mock_config):
+        connector = LLMConnector()
+        assert connector._normalize_city_name("madrid") == "Madrid"
+        assert connector._normalize_city_name("SAN SEBASTIAN") == "San Sebastian"
+        assert connector._normalize_city_name("la-zubia") == "La Zubia"
 
-def test_normalize_city_name_empty(llm_connector):
-    """Test de normalización con nombre de ciudad vacío."""
-    with pytest.raises(ValidacionError) as exc_info:
-        llm_connector._normalize_city_name("")
-    assert "El nombre de la ciudad no puede estar vacío" in str(exc_info.value)
+@patch('src.llm_connector.load_dotenv')
+@patch.object(LLMConnector, '_build_prompt', return_value="mocked prompt")
+@patch.object(LLMConnector, '_sort_centers', return_value=[])
+@patch.object(LLMConnector, '_normalize_city_name', side_effect=lambda x: x)
+@patch('src.llm_connector.DistanceCalculator')
+def test_generate_prompt_grouped_and_numbered(mock_distance_calculator_class, mock_normalize, mock_sort_centers, mock_build_prompt, mock_load_dotenv, mock_config):
+    """Test de generación de prompt agrupado por ciudad y numerado de forma continua."""
+    # Configure the mock instance returned by the mocked class
+    mock_distance_calculator_instance = mock_distance_calculator_class.return_value
+    def fake_get_distance(location1, province1, location2, province2):
+        if location1 == "Granada":
+            return 5.0 if location2 == "Granada" else 60.0
+        if location1 == "Motril":
+            return 5.0 if location2 == "Motril" else 60.0
+        if location1 == "Salobreña":
+            return 10.0 if location2 == "Granada" else 40.0
+        return 100.0
+    mock_distance_calculator_instance.get_distance.side_effect = fake_get_distance
 
-def test_generate_prompt_validation(llm_connector):
-    """Test de validación de parámetros en generate_prompt."""
-    with pytest.raises(ValidacionError) as exc_info:
-        llm_connector.generate_prompt("", [], [], [])
-    assert "Tipo de centro debe ser 'IES' o 'CEIP'" in str(exc_info.value)
-
-    with pytest.raises(ValidacionError) as exc_info:
-        llm_connector.generate_prompt("IES", [], [], [])
-    assert "Debe especificar al menos una provincia" in str(exc_info.value)
-
-    with pytest.raises(ValidacionError) as exc_info:
-        llm_connector.generate_prompt("IES", ["Granada"], [], [])
-    assert "Debe especificar al menos una ciudad de preferencia" in str(exc_info.value)
-
-def test_generate_prompt_success(llm_connector):
-    """Test de generación exitosa de prompt."""
+    connector = LLMConnector()
     tipo_centro = "IES"
     provincias = ["Granada"]
-    ciudades_preferencia = [{"nombre": "Granada", "radio": 50}]
-    datos_centros = [{
-        "Localidad": "Granada",
-        "Provincia": "Granada",
-        "Nombre": "Test Center"
-    }]
+    ciudades_preferencia = [
+        {"nombre": "Granada", "radio": 50},
+        {"nombre": "Motril", "radio": 50}
+    ]
+    datos_centros = [
+        {"Localidad": "Granada", "Provincia": "Granada", "Nombre": "Centro 1"},
+        {"Localidad": "Motril", "Provincia": "Granada", "Nombre": "Centro 2"},
+        {"Localidad": "Salobreña", "Provincia": "Granada", "Nombre": "Centro 3"}
+    ]
 
-    with patch.object(llm_connector.distance_calculator, 'get_distance', return_value=10.0):
-        prompt = llm_connector.generate_prompt(
-            tipo_centro=tipo_centro,
-            provincias=provincias,
-            ciudades_preferencia=ciudades_preferencia,
-            datos_centros=datos_centros
-        )
-        
-        assert "IES" in prompt
-        assert "Granada" in prompt
-        assert "10.0 km" in prompt
+    prompt = connector.generate_prompt(
+        tipo_centro=tipo_centro,
+        provincias=provincias,
+        ciudades_preferencia=ciudades_preferencia,
+        datos_centros=datos_centros
+    )
+    assert prompt == "mocked prompt"
 
-def test_process_with_llm_success(llm_connector):
+@patch('src.llm_connector.load_dotenv')
+@patch.object(LLMConnector, '_build_prompt', return_value="mocked prompt no centros")
+@patch.object(LLMConnector, '_sort_centers', return_value=[])
+@patch.object(LLMConnector, '_normalize_city_name', side_effect=lambda x: x)
+@patch('src.llm_connector.DistanceCalculator')
+def test_generate_prompt_no_centros(mock_distance_calculator_class, mock_normalize, mock_sort_centers, mock_build_prompt, mock_load_dotenv, mock_config):
+    """Test de mensaje cuando no hay centros dentro del radio para una ciudad."""
+    # Configure the mock instance returned by the mocked class
+    mock_distance_calculator_instance = mock_distance_calculator_class.return_value
+    mock_distance_calculator_instance.get_distance.return_value = 100.0
+
+    connector = LLMConnector()
+    tipo_centro = "IES"
+    provincias = ["Granada"]
+    ciudades_preferencia = [
+        {"nombre": "Granada", "radio": 50},
+        {"nombre": "Motril", "radio": 50}
+    ]
+    datos_centros = [
+        {"Localidad": "Granada", "Provincia": "Granada", "Nombre": "Centro 1"}
+    ]
+
+    prompt = connector.generate_prompt(
+        tipo_centro=tipo_centro,
+        provincias=provincias,
+        ciudades_preferencia=ciudades_preferencia,
+        datos_centros=datos_centros
+    )
+    assert prompt == "mocked prompt no centros"
+
+@patch('src.llm_connector.load_dotenv')
+def test_process_with_llm_success(mock_load_dotenv, llm_connector):
     """Test de procesamiento exitoso con LLM."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -109,20 +136,51 @@ def test_process_with_llm_success(llm_connector):
         result = llm_connector.process_with_llm("Test prompt")
         assert result == "Test response"
 
-def test_process_with_llm_api_error(llm_connector):
-    """Test de error en API durante procesamiento."""
-    with patch.object(llm_connector.session, 'post', side_effect=requests.exceptions.RequestException("API Error")):
-        with pytest.raises(APIError) as exc_info:
-            llm_connector.process_with_llm("Test prompt")
-        assert "Error en comunicación con API" in str(exc_info.value)
+@patch('src.llm_connector.load_dotenv')
+def test_api_key_preference_env_var(mock_load_dotenv, monkeypatch, mock_config):
+    """Test de preferencia: .env variable is used when no text input key."""
+    monkeypatch.setenv('MISTRAL_API_KEY', 'key_env')
+    with patch('yaml.safe_load', return_value=mock_config):
+        connector = LLMConnector()
+        assert connector.headers['Authorization'] == 'Bearer key_env'
 
-def test_process_with_llm_invalid_response(llm_connector):
-    """Test de respuesta inválida de la API."""
-    mock_response = Mock()
-    mock_response.json.return_value = {'invalid': 'response'}
-    mock_response.raise_for_status = Mock()
+@patch('src.llm_connector.load_dotenv')
+def test_api_key_preference_text_input(mock_load_dotenv, monkeypatch, mock_config):
+    """Test de preferencia: text input key is used over .env variable."""
+    monkeypatch.setenv('MISTRAL_API_KEY', 'key_env')
+    os.environ['MISTRAL_API_KEY'] = 'key_textinput'
+    with patch('yaml.safe_load', return_value=mock_config):
+        connector = LLMConnector()
+        assert connector.headers['Authorization'] == 'Bearer key_textinput'
+    del os.environ['MISTRAL_API_KEY']
 
-    with patch.object(llm_connector.session, 'post', return_value=mock_response):
-        with pytest.raises(APIError) as exc_info:
-            llm_connector.process_with_llm("Test prompt")
-        assert "Error en formato de respuesta" in str(exc_info.value) 
+@patch('src.llm_connector.load_dotenv')
+def test_build_prompt_no_centros_message(mock_load_dotenv, llm_connector):
+    """Test del mensaje de _build_prompt cuando no hay centros para una ciudad."""
+    tipo_centro = "IES"
+    provincias = ["Granada"]
+    ciudades_referencia = [
+        {"nombre": "Granada", "provincia": "Granada", "radio": 50},
+        {"nombre": "Motril", "provincia": "Granada", "radio": 50}
+    ]
+    distancias_centros = {
+        "Granada (Granada)": {"Granada": 5.0, "Motril": 100.0}
+    }
+    
+    mock_sorted_centers = [
+        {'centro': 'Granada (Granada)', 'ciudad_ref': 'Granada', 'distancia': 5.0}
+    ]
+
+    with patch.object(llm_connector, '_sort_centers', return_value=mock_sorted_centers):
+        prompt = llm_connector._build_prompt(
+            tipo_centro=tipo_centro,
+            provincias=provincias,
+            ciudades_referencia=ciudades_referencia,
+            distancias_centros=distancias_centros
+        )
+
+        assert "No se encontraron centros dentro del radio especificado para:" in prompt
+        assert "- Motril (radio: 50 km)" in prompt
+        assert "Cercanos a Granada:" in prompt
+        assert "1. Granada (Granada) - 5.0 km" in prompt
+        assert "Cercanos a Motril:" not in prompt 

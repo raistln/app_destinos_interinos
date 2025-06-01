@@ -17,6 +17,7 @@ Aplicación para ayudar a los interinos de educación en Andalucía a selecciona
 
 - Python 3.8 o superior
 - Cuenta en Mistral AI para obtener una API key
+- Archivo `.env` en la raíz del proyecto para cargar la API key (opcional si se ingresa directamente en la interfaz)
 
 ## Instalación
 
@@ -28,13 +29,17 @@ cd preferencia_interinos_programa
 
 2. Instalar las dependencias:
 ```bash
-pip install -r requirements.txt
+poetry install
 ```
 
 3. Configurar la API key de Mistral:
    - Obtén tu API key de Mistral (ver sección "Obtener API Key de Mistral")
-   - Crea un archivo `config/settings.yaml` basado en `config/settings.example.yaml`
-   - Añade tu API key en el archivo de configuración
+   - Crea un archivo `.env` en la raíz del proyecto.
+   - Añade tu API key en el archivo `.env` con el formato:
+     ```
+     MISTRAL_API_KEY="tu-api-key-aquí"
+     ```
+   - Alternativamente, puedes ingresar la API key directamente en el campo de texto de la aplicación al ejecutarla.
 
 ## Obtener API Key de Mistral
 
@@ -43,22 +48,18 @@ pip install -r requirements.txt
 3. Crea una nueva API key
 4. Copia la API key generada
 5. Puedes usar la API key de dos formas:
-   - Añadirla directamente en la aplicación a través de la interfaz
-   - Configurarla en el archivo `config/settings.yaml`:
-     ```yaml
-     api:
-       mistral_api_key: "tu-api-key-aquí"
-     ```
+   - Añadirla directamente en la aplicación a través de la interfaz (prioritario).
+   - Configurarla en el archivo `.env` en la raíz del proyecto con el formato `MISTRAL_API_KEY="tu-api-key-aquí"`.
 
 ## Uso
 
 1. Ejecutar la aplicación:
 ```bash
-streamlit run src/main.py
+poetry run streamlit run src/main.py
 ```
 
 2. En la interfaz:
-   - Introduce tu API key de Mistral (si no está en settings.yaml)
+   - Introduce tu API key de Mistral en el campo de texto. Si este campo está vacío, la aplicación intentará cargar la key automáticamente desde el archivo `.env`.
    - Selecciona las provincias deseadas
    - Elige el tipo de centro (IES o CEIP)
    - Añade ciudades de referencia:

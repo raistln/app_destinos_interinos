@@ -322,64 +322,23 @@ class DistanceCalculator:
             locality_distances.append((locality, min_distance, closest_ref_index, closest_ref_name))
             print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) más cercana a {closest_ref_name} (índice {closest_ref_index})")
         
+        # Filter out localities that are outside the radius of their closest reference
+        # These are the ones where min_distance is still float('inf')
+        valid_locality_distances = [item for item in locality_distances if item[1] != float('inf')]
+
         # Ordenar las localidades:
         # 1. Primero por el índice de la localidad de referencia más cercana (prioridad)
         # 2. Luego por la distancia a esa localidad de referencia
         def sort_key(item):
             locality, distance, ref_index, ref_name = item
             return (ref_index, distance)
-        
-        # Ordenar y devolver solo las localidades
-        sorted_localities = [loc for loc, _, _, _ in sorted(locality_distances, key=sort_key)]
-        
-        # Verificar y reordenar si es necesario
-        final_order = []
-        current_ref_index = 0
-        
-        while current_ref_index < len(reference_locations):
-            current_ref = reference_locations[current_ref_index]
-            next_ref = reference_locations[current_ref_index + 1] if current_ref_index + 1 < len(reference_locations) else None
-            
-            # Agrupar localidades por su referencia más cercana
-            current_group = []
-            for loc in sorted_localities:
-                if loc in final_order:
-                    continue
-                    
-                # Calcular distancias a las referencias actual y siguiente
-                dist_to_current = self.get_distance(
-                    current_ref['nombre'], current_ref['Provincia'],
-                    loc['Localidad'], loc['Provincia']
-                )
-                
-                # Verificar si está dentro del radio de la referencia actual
-                if dist_to_current > current_ref.get('radio', 50):
-                    continue
-                
-                if next_ref:
-                    dist_to_next = self.get_distance(
-                        next_ref['nombre'], next_ref['Provincia'],
-                        loc['Localidad'], loc['Provincia']
-                    )
-                    
-                    # Si está más cerca de la siguiente referencia y dentro de su radio, dejarlo para el siguiente grupo
-                    if dist_to_next < dist_to_current and dist_to_next <= next_ref.get('radio', 50):
-                        continue
-                
-                current_group.append((loc, dist_to_current))
-            
-            # Ordenar el grupo actual por distancia
-            current_group.sort(key=lambda x: x[1])
-            
-            # Añadir al orden final
-            final_order.extend([loc for loc, _ in current_group])
-            
-            current_ref_index += 1
-        
-        # Añadir cualquier localidad que se haya quedado sin asignar
-        remaining = [loc for loc in sorted_localities if loc not in final_order]
-        final_order.extend(remaining)
-        
+
+        # Sort the filtered list
+        sorted_valid_localities = sorted(valid_locality_distances, key=sort_key)
+
+        # Extract just the locality dictionaries from the sorted list
+        final_order = [loc for loc, _, _, _ in sorted_valid_localities]
+
         # Imprimir el orden final
         print("\nOrden final de localidades:")
         for i, loc in enumerate(final_order):
