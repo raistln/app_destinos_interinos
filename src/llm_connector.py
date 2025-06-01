@@ -99,12 +99,10 @@ class LLMConnector:
         if not city_name or not city_name.strip():
             raise ValidacionError("El nombre de la ciudad no puede estar vacío")
             
-        # Dividir por espacios y guiones
-        words = city_name.replace('-', ' ').split()
-        # Capitalizar cada palabra
-        normalized_words = [word.capitalize() for word in words]
-        # Unir las palabras
-        return ' '.join(normalized_words)
+        # Eliminar prefijo IES si existe
+        if city_name.upper().startswith('IES '):
+            city_name = city_name[4:]
+        return city_name.strip()
 
     def generate_prompt(self, 
                        tipo_centro: str, 
@@ -112,48 +110,34 @@ class LLMConnector:
                        ciudades_preferencia: List[Dict], 
                        datos_centros: List[Dict]) -> str:
         """
-        Genera un prompt para el LLM con los datos de los centros y las preferencias.
+        Genera un prompt para el LLM con los datos procesados.
         
         Args:
-            tipo_centro: Tipo de centro (IES o CEIP)
+            tipo_centro: Tipo de centro educativo
             provincias: Lista de provincias seleccionadas
-            ciudades_preferencia: Lista de diccionarios con ciudades de preferencia y sus radios
+            ciudades_preferencia: Lista de ciudades de preferencia con sus radios
             datos_centros: Lista de diccionarios con datos de los centros
             
         Returns:
-            str: Prompt generado para el LLM
-            
-        Raises:
-            ValidacionError: Si los datos de entrada no son válidos
+            str: Prompt generado
         """
         logger.info("Generando prompt para LLM")
         
-        # Validar entradas
-        if not tipo_centro or ("IES" not in tipo_centro and "CEIP" not in tipo_centro):
-            raise ValidacionError("Tipo de centro debe ser 'IES' o 'CEIP'")
-        if not provincias:
-            raise ValidacionError("Debe especificar al menos una provincia")
-        if not ciudades_preferencia:
-            raise ValidacionError("Debe especificar al menos una ciudad de preferencia")
-        if not datos_centros:
-            raise ValidacionError("No hay datos de centros disponibles")
-            
         try:
             # Normalizar nombres de ciudades de referencia
             ciudades_referencia = []
             for ciudad in ciudades_preferencia:
                 ciudad_normalizada = self._normalize_city_name(ciudad['nombre'])
                 ciudades_referencia.append({
-                    'nombre': ciudad['nombre'],
+                    'nombre': ciudad_normalizada,
                     'provincia': provincias[0],
                     'radio': ciudad.get('radio', 50)
                 })
-                logger.debug(f"Ciudad de referencia normalizada: {ciudad_normalizada}")
             
             # Crear diccionario de distancias para cada centro
             distancias_centros = {}
             for centro in datos_centros:
-                localidad = centro['Localidad']
+                localidad = self._normalize_city_name(centro['Localidad'])
                 provincia = centro['Provincia']
                 distancias = {}
                 
@@ -195,15 +179,6 @@ class LLMConnector:
                      distancias_centros: Dict) -> str:
         """
         Construye el prompt final con todos los datos procesados.
-        
-        Args:
-            tipo_centro: Tipo de centro
-            provincias: Lista de provincias
-            ciudades_referencia: Lista de ciudades de referencia
-            distancias_centros: Diccionario con distancias calculadas
-            
-        Returns:
-            str: Prompt completo
         """
         # Ordenar los centros
         centros_ordenados = self._sort_centers(distancias_centros, ciudades_referencia)
@@ -219,15 +194,20 @@ class LLMConnector:
                 centros_por_ciudad[ciudad] = []
             centros_por_ciudad[ciudad].append(centro)
         
+        # Mantener un contador continuo para todos los centros
         contador = 1
+        
+        # Procesar cada ciudad de referencia en el orden original
         for ciudad in ciudades_referencia:
             nombre_ciudad = ciudad['nombre']
             if nombre_ciudad in centros_por_ciudad:
-                prompt += f"Cercanos a {nombre_ciudad}:\n"
-                for centro in centros_por_ciudad[nombre_ciudad]:
+                prompt += f"\nCiudades cercanas a {nombre_ciudad}:\n\n"
+                # Ordenar los centros de esta ciudad por distancia
+                centros_ciudad = sorted(centros_por_ciudad[nombre_ciudad], key=lambda x: x['distancia'])
+                for centro in centros_ciudad:
                     prompt += f"{contador}. {centro['centro']} - {centro['distancia']:.1f} km\n"
                     contador += 1
-                prompt += "\n"
+                prompt += "\n"  # Añadir línea en blanco después de cada grupo
         
         # Añadir información sobre ciudades sin centros
         ciudades_con_centros = set(centros_por_ciudad.keys())
@@ -235,7 +215,7 @@ class LLMConnector:
                                if ciudad['nombre'] not in ciudades_con_centros]
         
         if ciudades_sin_centros:
-            prompt += "No se encontraron centros dentro del radio especificado para:\n"
+            prompt += "\nNo se encontraron centros dentro del radio especificado para:\n"
             for ciudad in ciudades_sin_centros:
                 radio = next(c['radio'] for c in ciudades_referencia if c['nombre'] == ciudad)
                 prompt += f"- {ciudad} (radio: {radio} km)\n"
@@ -246,15 +226,7 @@ class LLMConnector:
                      distancias_centros: Dict,
                      ciudades_referencia: List[Dict]) -> List[Dict]:
         """
-        Ordena los centros según su proximidad a las ciudades de referencia,
-        implementando una lógica de clustering basada en distancias.
-        
-        Args:
-            distancias_centros: Diccionario con distancias calculadas
-            ciudades_referencia: Lista de ciudades de referencia
-            
-        Returns:
-            List[Dict]: Lista ordenada de centros
+        Ordena los centros según su proximidad a las ciudades de referencia.
         """
         # Lista para almacenar los centros ordenados
         centros_ordenados = []
@@ -295,67 +267,15 @@ class LLMConnector:
             return (ref_index, centro['distancia'])
         
         return sorted(centros_ordenados, key=sort_key)
-    
+
     def process_with_llm(self, prompt: str) -> str:
-        """
-        Procesa el prompt con el LLM seleccionado.
-        
-        Args:
-            prompt: Prompt a procesar
-            
-        Returns:
-            str: Respuesta del LLM
-            
-        Raises:
-            LLMError: Si hay error en el procesamiento
-        """
-        logger.info("Procesando prompt con LLM")
+        """Procesa el prompt usando el LLM."""
         try:
-            return self._process_with_mistral(prompt)
+            # Por ahora, simplemente devolvemos el prompt formateado
+            return prompt
         except Exception as e:
-            logger.error(f"Error procesando prompt con LLM: {str(e)}")
-            raise LLMError(f"Error en procesamiento LLM: {str(e)}")
-    
-    def _process_with_mistral(self, prompt: str) -> str:
-        """
-        Procesa el prompt usando la API de Mistral.
-        
-        Args:
-            prompt: Prompt a procesar
-            
-        Returns:
-            str: Respuesta de la API
-            
-        Raises:
-            APIError: Si hay error en la comunicación con la API
-        """
-        try:
-            payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": "Eres un asistente especializado en ordenar localidades según proximidad geográfica."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": self.config['llm']['temperature'],
-                "max_tokens": self.config['llm']['max_tokens']
-            }
-            
-            response = self.session.post(
-                self.api_url,
-                headers=self.headers,
-                json=payload,
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            return response.json()['choices'][0]['message']['content']
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error en API de Mistral: {str(e)}")
-            raise APIError(f"Error en comunicación con API: {str(e)}")
-        except (KeyError, ValueError) as e:
-            logger.error(f"Error procesando respuesta de API: {str(e)}")
-            raise APIError(f"Error en formato de respuesta: {str(e)}")
+            logger.error(f"Error procesando con LLM: {str(e)}")
+            raise
     
     def _format_sorted_localities(self, sorted_localities: List[Dict]) -> str:
         """

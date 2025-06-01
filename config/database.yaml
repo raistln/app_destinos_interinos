@@ -1,0 +1,21 @@
+database:
+  path: "data/distancias_cache.db"
+  backup_path: "data/backups/"
+  
+rate_limiting:
+  osrm_calls_per_minute: 60
+  geopy_calls_per_minute: 100
+  
+geocoding:
+  validate_spain_bounds: true
+  cache_coordinates: true
+  nominatim_user_agent: "destinos_interinos"
+  
+osrm:
+  base_url: "http://router.project-osrm.org/route/v1"
+  profile: "driving"
+  
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log" 
