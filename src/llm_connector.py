@@ -1,14 +1,13 @@
 import os
 import logging
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional
 import yaml
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pandas as pd
 from distance_calculator import DistanceCalculator
 from dotenv import load_dotenv
-from exceptions import LLMError, ConfiguracionError, ValidacionError, APIError
+from exceptions import LLMError, ConfiguracionError, ValidacionError
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -19,13 +18,6 @@ class LLMConnector:
     
     Esta clase maneja la comunicación con el modelo Mistral y procesa
     los datos de centros educativos y preferencias de ubicación.
-    
-    Attributes:
-        model (str): Nombre del modelo a utilizar
-        api_url (str): URL de la API del modelo
-        headers (dict): Headers para las peticiones HTTP
-        distance_calculator (DistanceCalculator): Instancia para cálculos de distancia
-        reference_locations (List[Dict]): Lista de ubicaciones de referencia
     """
     
     def __init__(self, config_path: str = "config/settings.yaml"):
@@ -75,7 +67,6 @@ class LLMConnector:
             
             # Inicializar el calculador de distancias
             self.distance_calculator = DistanceCalculator()
-            self.reference_locations = []
             
             logger.info("LLMConnector inicializado correctamente")
             
@@ -230,14 +221,9 @@ class LLMConnector:
         """
         # Lista para almacenar los centros ordenados
         centros_ordenados = []
-        # Conjunto para evitar duplicados
-        centros_procesados = set()
         
         # Para cada centro, encontrar su ciudad de referencia más cercana dentro del radio
         for centro, distancias in distancias_centros.items():
-            if centro in centros_procesados:
-                continue
-            
             # Encontrar la ciudad de referencia más cercana dentro de su radio
             ciudad_mas_cercana = None
             distancia_minima = float('inf')
@@ -256,7 +242,6 @@ class LLMConnector:
                     'ciudad_ref': ciudad_mas_cercana['nombre'],
                     'distancia': distancia_minima
                 })
-                centros_procesados.add(centro)
         
         # Ordenar primero por ciudad de referencia (manteniendo el orden original)
         # y luego por distancia
@@ -275,86 +260,4 @@ class LLMConnector:
             return prompt
         except Exception as e:
             logger.error(f"Error procesando con LLM: {str(e)}")
-            raise
-    
-    def _format_sorted_localities(self, sorted_localities: List[Dict]) -> str:
-        """
-        Formatea la lista ordenada de localidades incluyendo la ciudad de referencia y la distancia.
-        
-        Args:
-            sorted_localities: Lista de diccionarios con localidades ordenadas
-            
-        Returns:
-            str con la lista formateada
-        """
-        formatted_list = []
-        for i, loc in enumerate(sorted_localities):
-            # Calcular la distancia a cada ciudad de referencia
-            distances = []
-            for ref_loc in self.reference_locations:
-                try:
-                    distance = self.distance_calculator.get_distance(
-                        ref_loc['nombre'], ref_loc['Provincia'],
-                        loc['Localidad'], loc['Provincia']
-                    )
-                    if distance <= ref_loc.get('radio', 50):
-                        distances.append((ref_loc['nombre'], distance, ref_loc.get('radio', 50)))
-                except Exception as e:
-                    print(f"Error calculando distancia: {str(e)}")
-                    continue
-            
-            if distances:
-                # Encontrar la ciudad de referencia más cercana
-                closest_ref = min(distances, key=lambda x: x[1])
-                
-                # Formatear la línea con la información de distancia y radio
-                formatted_list.append(
-                    f"{i+1}. {loc['Localidad']} ({loc['Provincia']}) - "
-                    f"Cerca de {closest_ref[0]} ({closest_ref[1]:.1f} km, radio: {closest_ref[2]} km)"
-                )
-            else:
-                # Si no está dentro del radio de ninguna ciudad de referencia
-                formatted_list.append(
-                    f"{i+1}. {loc['Localidad']} ({loc['Provincia']}) - "
-                    f"Fuera del radio de todas las ciudades de referencia"
-                )
-        
-        return "\n".join(formatted_list)
-    
-    def _format_centros_data(self, datos_centros: List[Dict]) -> str:
-        """Formatea los datos de los centros para el prompt."""
-        if not datos_centros:
-            return "No hay datos de centros disponibles."
-        
-        ejemplo = datos_centros[0]
-        return f"""
-Ejemplo de datos de centro:
-- Código: {ejemplo.get('Código', 'N/A')}
-- Denominación: {ejemplo.get('Denominación', 'N/A')}
-- Nombre: {ejemplo.get('Nombre', 'N/A')}
-- Dependencia: {ejemplo.get('Dependencia', 'N/A')}
-- Localidad: {ejemplo.get('Localidad', 'N/A')}
-- Municipio: {ejemplo.get('Municipio', 'N/A')}
-- Provincia: {ejemplo.get('Provincia', 'N/A')}
-- Código Postal: {ejemplo.get('Código Postal', 'N/A')}
-"""
-    
-    def _format_ciudades_preferencia(self, ciudades: List[Dict]) -> str:
-        """Formatea la lista de ciudades de preferencia para el prompt."""
-        return "\n".join([
-            f"{i+1}. {ciudad['nombre']} (radio: {ciudad.get('radio', 50)} km)"
-            for i, ciudad in enumerate(ciudades)
-        ])
-    
-    def _process_with_openai(self, prompt: str) -> str:
-        """Procesa el prompt usando la API de OpenAI."""
-        response = openai.ChatCompletion.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "Eres un asistente especializado en ordenar localidades según proximidad geográfica."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=self.config['llm']['temperature'],
-            max_tokens=self.config['llm']['max_tokens']
-        )
-        return response.choices[0].message.content 
+            raise 

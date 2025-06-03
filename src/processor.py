@@ -3,10 +3,12 @@ from pathlib import Path
 from typing import List, Dict
 import os
 import yaml
+from distance_calculator import DistanceCalculator
 
 class DataProcessor:
     def __init__(self, data_dir: str = "data"):
         self.data_dir = Path(data_dir)
+        self.distance_calculator = DistanceCalculator()
         
     def load_data(self, provincias: List[str], tipo_centro: str) -> pd.DataFrame:
         """
@@ -20,62 +22,53 @@ class DataProcessor:
             DataFrame con los datos de los centros
         """
         dfs = []
-        tipo_archivo = "institutos.csv" if "IES" in tipo_centro else "colegios.csv"
-        
-        # Mapeo de nombres de provincias con tildes a nombres de directorios sin tildes
-        nombre_directorio = {
-            'Almería': 'Almeria',
-            'Cádiz': 'Cadiz',
-            'Córdoba': 'Cordoba',
-            'Granada': 'Granada',
-            'Huelva': 'Huelva',
-            'Jaén': 'Jaen',
-            'Málaga': 'Malaga',
-            'Sevilla': 'Sevilla'
-        }
         
         for provincia in provincias:
-            # Obtener el nombre del directorio sin tilde
-            dir_name = nombre_directorio.get(provincia, provincia)
-            archivo = self.data_dir / dir_name / tipo_archivo
-            print(f"\nIntentando cargar archivo: {archivo}")
+            # Determinar el nombre del archivo según el tipo de centro
+            if tipo_centro == "Institutos (IES)":
+                archivo = f"data/{provincia}/institutos.csv"
+            else:  # Colegios (CEIP)
+                archivo = f"data/{provincia}/colegios.csv"
             
-            if archivo.exists():
-                try:
-                    # Intentar primero con UTF-8
-                    df = pd.read_csv(archivo, encoding='utf-8')
-                except UnicodeDecodeError:
+            try:
+                print(f"Intentando cargar archivo: {archivo}")
+                # Intentar diferentes codificaciones
+                for encoding in ['utf-8', 'latin1', 'cp1252']:
                     try:
-                        # Si falla, intentar con Windows-1252
-                        df = pd.read_csv(archivo, encoding='windows-1252')
+                        df = pd.read_csv(archivo, encoding=encoding)
+                        print(f"Archivo cargado con codificación {encoding}: {archivo}")
+                        break
                     except UnicodeDecodeError:
-                        # Si también falla, intentar con ISO-8859-1
-                        df = pd.read_csv(archivo, encoding='iso-8859-1')
+                        continue
                 
-                # Asegurarnos de que la columna de provincia existe y tiene el valor correcto
-                if 'provincia' not in df.columns:
-                    df['provincia'] = provincia
-                else:
-                    # Si existe, asegurarnos de que todos los valores son correctos
-                    df['provincia'] = provincia
+                # Corregir nombres de columnas
+                df.columns = [col.encode('latin1').decode('utf-8') if isinstance(col, str) else col for col in df.columns]
                 
+                # Asegurar que la columna Provincia existe
+                if 'Provincia' not in df.columns:
+                    df['Provincia'] = provincia
+                
+                dfs.append(df)
                 print(f"Archivo cargado: {archivo}")
                 print(f"Número de registros: {len(df)}")
                 print(f"Columnas: {df.columns.tolist()}")
-                dfs.append(df)
-            else:
-                print(f"ADVERTENCIA: No se encontró el archivo {archivo}")
+                
+            except Exception as e:
+                print(f"Error al cargar {archivo}: {str(e)}")
+                continue
         
         if not dfs:
-            print("ADVERTENCIA: No se encontraron archivos CSV para las provincias seleccionadas")
             return pd.DataFrame()
-            
-        # Concatenar todos los DataFrames
-        final_df = pd.concat(dfs, ignore_index=True)
-        print(f"\nDataFrame final:")
-        print(f"Número total de registros: {len(final_df)}")
-        print(f"Registros por provincia: {final_df['provincia'].value_counts().to_dict()}")
-        return final_df
+        
+        # Combinar todos los DataFrames
+        df_final = pd.concat(dfs, ignore_index=True)
+        
+        # Mostrar información de depuración
+        print("\nDataFrame final:")
+        print(f"Número total de registros: {len(df_final)}")
+        print(f"Registros por provincia: {df_final['Provincia'].value_counts().to_dict()}")
+        
+        return df_final
     
     def process_preferences(self, 
                           df: pd.DataFrame, 

@@ -5,6 +5,7 @@ import os
 from typing import Dict, List, Tuple
 import time
 import requests
+import tempfile
 
 class DistanceCalculator:
     def __init__(self):
@@ -33,21 +34,17 @@ class DistanceCalculator:
             # Añadir un pequeño delay para no sobrecargar la API
             time.sleep(1)
             
-            # Intentar primero con el nombre exacto y provincia
-            location_data = self.geolocator.geocode(cache_key)
+            # Intentar primero con el nombre y Andalucía
+            location_data = self.geolocator.geocode(f"{location}, Andalucía, España")
             
             # Si no se encuentra, intentar con más contexto
             if not location_data:
                 # Intentar con "Municipio de" o "Villa de"
                 for prefix in ["Municipio de", "Villa de"]:
-                    alt_query = f"{prefix} {location}, {province}, España"
+                    alt_query = f"{prefix} {location}, Andalucía, España"
                     location_data = self.geolocator.geocode(alt_query)
                     if location_data:
                         break
-            
-            # Si aún no se encuentra, intentar con Andalucía
-            if not location_data:
-                location_data = self.geolocator.geocode(f"{location}, {province}, Andalucía, España")
             
             if location_data:
                 coords = (location_data.latitude, location_data.longitude)
@@ -325,7 +322,7 @@ class DistanceCalculator:
         # Filter out localities that are outside the radius of their closest reference
         # These are the ones where min_distance is still float('inf')
         valid_locality_distances = [item for item in locality_distances if item[1] != float('inf')]
-
+        
         # Ordenar las localidades:
         # 1. Primero por el índice de la localidad de referencia más cercana (prioridad)
         # 2. Luego por la distancia a esa localidad de referencia
