@@ -89,6 +89,7 @@ class OptimizedDistanceService:
         # Try cache first
         cached_distance = self.cache.obtener_distancia_cached(centro_id, ciudad_id)
         if cached_distance is not None:
+            print(f"Distancia obtenida de la base de datos entre centro_id {centro_id} y ciudad_id {ciudad_id}: {cached_distance:.1f} km")
             return cached_distance
 
         # Get coordinates
@@ -98,11 +99,13 @@ class OptimizedDistanceService:
         osrm_distance = self._calculate_osrm_distance(centro_coords, ciudad_coords)
         if osrm_distance is not None:
             self.cache.guardar_distancia(centro_id, ciudad_id, osrm_distance, 'osrm')
+            print(f"Distancia calculada con OSRM entre centro_id {centro_id} y ciudad_id {ciudad_id}: {osrm_distance:.1f} km")
             return osrm_distance
 
         # Fallback to Geopy
         geopy_distance = self._calculate_geopy_distance(centro_coords, ciudad_coords)
         self.cache.guardar_distancia(centro_id, ciudad_id, geopy_distance, 'geopy')
+        print(f"Distancia calculada con Geopy entre centro_id {centro_id} y ciudad_id {ciudad_id}: {geopy_distance:.1f} km")
         return geopy_distance
 
     def _clean_location_name(self, name: str) -> str:

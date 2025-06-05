@@ -86,6 +86,7 @@ class DistanceCalculator:
         
         # Verificar si la distancia está en caché
         if cache_key in self.distance_cache:
+            print(f"Distancia obtenida de la caché entre {location1} ({province1}) y {location2} ({province2}): {self.distance_cache[cache_key]:.1f} km")
             return self.distance_cache[cache_key]
         
         try:
@@ -106,7 +107,7 @@ class DistanceCalculator:
                     if data['code'] == 'Ok':
                         distance = data['routes'][0]['distance'] / 1000
                         self.distance_cache[cache_key] = distance
-                        print(f"Distancia por carretera entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
+                        print(f"Distancia calculada con OSRM entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
                         return distance
             except Exception as e:
                 print(f"Error con OSRM para {location1}-{location2}: {str(e)}")
@@ -118,7 +119,7 @@ class DistanceCalculator:
                 # Añadir un factor de corrección para aproximar la distancia por carretera
                 distance = distance * 1.3  # Factor de corrección típico para carreteras
                 self.distance_cache[cache_key] = distance
-                print(f"Distancia aproximada entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
+                print(f"Distancia calculada con Geopy entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
                 return distance
             except Exception as e:
                 print(f"Error al calcular distancia entre {location1} y {location2}: {str(e)}")
