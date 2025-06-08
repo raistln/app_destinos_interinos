@@ -13,6 +13,12 @@ Aplicación para ayudar a los interinos de educación en Andalucía a selecciona
 - Guardado y carga de configuraciones
 - Exportación de resultados
 
+## Video Tutorial
+
+Para ver una explicación detallada de cómo usar la aplicación, puedes ver el siguiente video tutorial:
+
+[![Video Tutorial](https://img.youtube.com/vi/1iMq3vuc5gM/0.jpg)](https://youtu.be/1iMq3vuc5gM)
+
 ## Requisitos
 
 - Python 3.8 o superior
