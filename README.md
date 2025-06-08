@@ -122,6 +122,6 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 
 ## Contacto
 
-Samuel - [@tutwitter](https://twitter.com/tutwitter) - email@example.com
+Samuel - [LinkedIn](https://www.linkedin.com/in/samuel-mart%C3%ADn-fonseca-74014b17/) - email@example.com
 
 Link del proyecto: [https://github.com/tuusuario/preferencia_interinos_programa](https://github.com/tuusuario/preferencia_interinos_programa)
