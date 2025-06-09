@@ -9,12 +9,14 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        logger.info(f"Initializing database at path: {self.db_path}")
         self._ensure_db_directory()
         self._init_db()
 
     def _ensure_db_directory(self):
         """Ensure the database directory exists."""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        logger.info(f"Database directory ensured at: {os.path.dirname(self.db_path)}")
 
     def _init_db(self):
         """Initialize the database with required tables."""
@@ -79,6 +81,7 @@ class DatabaseManager:
             """)
 
             conn.commit()
+            logger.info("Database initialized successfully with required tables and indexes.")
 
     def get_connection(self) -> sqlite3.Connection:
         """Get a database connection."""

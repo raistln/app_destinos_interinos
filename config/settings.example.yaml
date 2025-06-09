@@ -26,8 +26,8 @@ ui:
 data:
   base_path: data
   file_types:
-    - institutos.csv
-    - colegios.csv
+    - centros_educativos_secundaria.csv
+    - centros_educativos_primaria.csv
   required_columns:
     - codigo
     - denominacion

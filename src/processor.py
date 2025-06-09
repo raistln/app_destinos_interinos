@@ -26,9 +26,9 @@ class DataProcessor:
         for provincia in provincias:
             # Determinar el nombre del archivo según el tipo de centro
             if tipo_centro == "Institutos (IES)":
-                archivo = f"data/{provincia}/institutos.csv"
+                archivo = f"data/{provincia}/centros_educativos_secundaria.csv"
             else:  # Colegios (CEIP)
-                archivo = f"data/{provincia}/colegios.csv"
+                archivo = f"data/{provincia}/centros_educativos_primaria.csv"
             
             try:
                 print(f"Intentando cargar archivo: {archivo}")
