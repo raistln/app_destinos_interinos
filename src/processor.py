@@ -16,6 +16,23 @@ class DataProcessor:
         self.db_manager = DatabaseManager("data/distancias_cache.db")
         self.distance_calculator = DistanceCalculator()
         
+    def _normalize_province_name(self, provincia: str) -> str:
+        """
+        Normaliza el nombre de la provincia para que coincida con el nombre del directorio.
+        """
+        # Mapeo de nombres con tildes a nombres sin tildes
+        province_mapping = {
+            "Almería": "Almeria",
+            "Cádiz": "Cadiz",
+            "Córdoba": "Cordoba",
+            "Granada": "Granada",
+            "Huelva": "Huelva",
+            "Jaén": "Jaen",
+            "Málaga": "Malaga",
+            "Sevilla": "Sevilla"
+        }
+        return province_mapping.get(provincia, provincia)
+        
     def load_data(self, provincias: List[str], tipo_centro: str) -> pd.DataFrame:
         """
         Carga los datos de los centros educativos para las provincias seleccionadas.
@@ -30,16 +47,19 @@ class DataProcessor:
         dfs = []
         
         for provincia in provincias:
+            # Normalizar el nombre de la provincia
+            provincia_normalizada = self._normalize_province_name(provincia)
+            
             # Determinar el nombre del archivo según el tipo de centro
             if tipo_centro == "Institutos (IES)":
-                archivo = f"data/{provincia}/centros_educativos_secundaria.csv"
+                archivo = f"data/{provincia_normalizada}/centros_educativos_secundaria.csv"
             else:  # Colegios (CEIP)
-                archivo = f"data/{provincia}/centros_educativos_primaria.csv"
+                archivo = f"data/{provincia_normalizada}/centros_educativos_primaria.csv"
             
             try:
                 print(f"Intentando cargar archivo: {archivo}")
                 # Intentar diferentes codificaciones
-                for encoding in ['utf-8', 'latin1', 'cp1252']:
+                for encoding in ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']:
                     try:
                         df = pd.read_csv(archivo, encoding=encoding)
                         print(f"Archivo cargado con codificación {encoding}: {archivo}")

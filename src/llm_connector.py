@@ -119,9 +119,11 @@ class LLMConnector:
             ciudades_referencia = []
             for ciudad in ciudades_preferencia:
                 ciudad_normalizada = self._normalize_city_name(ciudad['nombre'])
+                # Usar la provincia de la ciudad si está especificada, sino usar la primera provincia seleccionada
+                provincia = ciudad.get('provincia', provincias[0])
                 ciudades_referencia.append({
                     'nombre': ciudad_normalizada,
-                    'provincia': provincias[0],
+                    'provincia': provincia,
                     'radio': ciudad.get('radio', 50)
                 })
             

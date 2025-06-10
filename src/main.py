@@ -160,6 +160,7 @@ def render_sidebar():
                             if coords:
                                 st.session_state.ciudades_preferencia.append({
                                     'nombre': nueva_ciudad.strip(),
+                                    'provincia': provincias_seleccionadas[0] if provincias_seleccionadas else "Granada",
                                     'radio': 50
                                 })
                                 st.rerun()
