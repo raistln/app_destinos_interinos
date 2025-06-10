@@ -94,18 +94,14 @@ poetry run streamlit run src/main.py
 
 ```
 preferencia_interinos_programa/
-├── config/
-│   ├── settings.example.yaml
-│   └── settings.yaml
-├── data/
-│   └── centros_educativos.csv
-├── src/
-│   ├── main.py
-│   ├── llm_connector.py
-│   ├── distance_calculator.py
-│   └── processor.py
-├── requirements.txt
-└── README.md
+├── config/           # Configuraciones de la aplicación
+├── data/            # Datos de centros educativos
+├── saved_configs/   # Configuraciones guardadas por el usuario
+├── src/             # Código fuente de la aplicación
+├── tests/           # Tests unitarios
+├── main.py          # Punto de entrada de la aplicación
+├── requirements.txt # Dependencias del proyecto
+└── README.md        # Este archivo
 ```
 
 ## Contribuir
@@ -115,6 +111,46 @@ preferencia_interinos_programa/
 3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
 4. Push a la rama (`git push origin feature/AmazingFeature`)
 5. Abre un Pull Request
+
+## Desarrollo
+
+### Instalación para desarrollo
+
+1. Instalar dependencias de desarrollo:
+```bash
+poetry install --with dev
+```
+
+2. Instalar pre-commit hooks:
+```bash
+pre-commit install
+```
+
+### Testing
+
+Para ejecutar los tests:
+```bash
+poetry run pytest
+```
+
+Para ver la cobertura de tests:
+```bash
+poetry run pytest --cov=src tests/
+```
+
+## Solución de problemas comunes
+
+### Error de API Key
+Si recibes un error relacionado con la API key:
+1. Verifica que la API key sea válida
+2. Asegúrate de que el archivo `.env` está en la raíz del proyecto
+3. Intenta ingresar la API key directamente en la interfaz
+
+### Error de conexión
+Si la aplicación no puede conectarse a los servicios:
+1. Verifica tu conexión a internet
+2. Asegúrate de que los servicios de Mistral AI estén operativos
+3. Revisa los logs en la carpeta `logs/` para más detalles
 
 ## Licencia
 
