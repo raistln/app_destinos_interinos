@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.distance_calculator import DistanceCalculator
+from distance_calculator import DistanceCalculator
 import pandas as pd
 
 @pytest.fixture

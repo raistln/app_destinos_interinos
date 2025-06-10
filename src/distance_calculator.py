@@ -2,16 +2,21 @@ import pandas as pd
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import time
 import requests
 import tempfile
+from database.db_manager import DatabaseManager
+from database.distance_cache import DistanceCache
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DistanceCalculator:
     def __init__(self):
-        self.geolocator = Nominatim(user_agent="preferencia_interinos")
-        self.coordinates_cache: Dict[str, Tuple[float, float]] = {}
-        self.distance_cache: Dict[Tuple[str, str], float] = {}
+        self.db_manager = DatabaseManager("data/distancias_cache.db")
+        self.cache = DistanceCache(self.db_manager)
+        self.geocoder = Nominatim(user_agent="destinos_interinos")
         self.osrm_url = "https://router.project-osrm.org/route/v1/driving"
         
     def _get_coordinates(self, location: str, province: str) -> Tuple[float, float]:
@@ -25,44 +30,72 @@ class DistanceCalculator:
         Returns:
             Tupla con (latitud, longitud)
         """
-        cache_key = f"{location}, {province}, España"
-        
-        if cache_key in self.coordinates_cache:
-            return self.coordinates_cache[cache_key]
+        # Primero intentar obtener de la base de datos
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT latitud, longitud
+                FROM ciudades_referencia
+                WHERE nombre_normalizado = ?
+            """, (f"{location}, {province}, España".lower(),))
+            result = cursor.fetchone()
+            
+            if result:
+                return result
             
         try:
             # Añadir un pequeño delay para no sobrecargar la API
-            time.sleep(1)
+            time.sleep(3)
             
             # Intentar primero con el nombre y Andalucía
-            location_data = self.geolocator.geocode(f"{location}, Andalucía, España")
+            location_data = self.geocoder.geocode(f"{location}, Andalucía, España", timeout=10)
             
             # Si no se encuentra, intentar con más contexto
             if not location_data:
                 # Intentar con "Municipio de" o "Villa de"
                 for prefix in ["Municipio de", "Villa de"]:
                     alt_query = f"{prefix} {location}, Andalucía, España"
-                    location_data = self.geolocator.geocode(alt_query)
+                    location_data = self.geocoder.geocode(alt_query, timeout=10)
                     if location_data:
                         break
             
             if location_data:
                 coords = (location_data.latitude, location_data.longitude)
-                self.coordinates_cache[cache_key] = coords
-                print(f"Coordenadas encontradas para {cache_key}: {coords}")
+                # Guardar en la base de datos
+                with self.db_manager.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO ciudades_referencia (nombre_normalizado, latitud, longitud)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(nombre_normalizado) DO UPDATE SET
+                            latitud = excluded.latitud,
+                            longitud = excluded.longitud
+                    """, (f"{location}, {province}, España".lower(), coords[0], coords[1]))
+                    conn.commit()
+                logger.info(f"Coordenadas guardadas en la base de datos para {location}, {province}")
                 return coords
             else:
-                print(f"ADVERTENCIA: No se encontraron coordenadas para {cache_key}")
+                logger.warning(f"No se encontraron coordenadas para {location}, {province}")
                 # Intentar con una búsqueda más amplia
-                location_data = self.geolocator.geocode(f"{location}, España")
+                location_data = self.geocoder.geocode(f"{location}, España", timeout=10)
                 if location_data:
                     coords = (location_data.latitude, location_data.longitude)
-                    self.coordinates_cache[cache_key] = coords
-                    print(f"Coordenadas encontradas (búsqueda amplia) para {cache_key}: {coords}")
+                    # Guardar en la base de datos
+                    with self.db_manager.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO ciudades_referencia (nombre_normalizado, latitud, longitud)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(nombre_normalizado) DO UPDATE SET
+                                latitud = excluded.latitud,
+                                longitud = excluded.longitud
+                        """, (f"{location}, {province}, España".lower(), coords[0], coords[1]))
+                        conn.commit()
+                    logger.info(f"Coordenadas guardadas en la base de datos (búsqueda amplia) para {location}, {province}")
                     return coords
-                raise ValueError(f"No se encontraron coordenadas para {cache_key}")
+                raise ValueError(f"No se encontraron coordenadas para {location}, {province}")
         except Exception as e:
-            print(f"Error al obtener coordenadas para {cache_key}: {str(e)}")
+            logger.error(f"Error al obtener coordenadas para {location}, {province}: {str(e)}")
             return None
             
     def get_distance(self, location1: str, province1: str, location2: str, province2: str) -> float:
@@ -78,56 +111,49 @@ class DistanceCalculator:
         Returns:
             Distancia en kilómetros
         """
-        # Crear clave para el caché
-        cache_key = tuple(sorted([
-            f"{location1}, {province1}",
-            f"{location2}, {province2}"
-        ]))
-        
-        # Verificar si la distancia está en caché
-        if cache_key in self.distance_cache:
-            print(f"Distancia obtenida de la caché entre {location1} ({province1}) y {location2} ({province2}): {self.distance_cache[cache_key]:.1f} km")
-            return self.distance_cache[cache_key]
-        
         try:
-            # Obtener coordenadas
+            # Normalizar nombres de localidades
+            loc1_norm = f"{location1}, {province1}, España".lower()
+            loc2_norm = f"{location2}, {province2}, España".lower()
+            
+            # Intentar obtener de la caché
+            cached_distance = self.cache.get_distance(loc1_norm, loc2_norm)
+            if cached_distance is not None:
+                logger.info(f"Distancia obtenida de la caché entre {location1} y {location2}: {cached_distance:.1f} km")
+                return cached_distance
+            
+            # Si no está en caché, obtener coordenadas
             coords1 = self._get_coordinates(location1, province1)
             coords2 = self._get_coordinates(location2, province2)
             
-            if coords1 is None or coords2 is None:
+            if not coords1 or not coords2:
                 raise ValueError("No se pudieron obtener las coordenadas para alguna de las localidades")
             
-            # Intentar primero con OSRM
+            # Intentar obtener la distancia por carretera usando OSRM
             try:
                 url = f"{self.osrm_url}/{coords1[1]},{coords1[0]};{coords2[1]},{coords2[0]}"
-                response = requests.get(url, timeout=10)  # Añadir timeout
-                
+                response = requests.get(url)
                 if response.status_code == 200:
                     data = response.json()
                     if data['code'] == 'Ok':
-                        distance = data['routes'][0]['distance'] / 1000
-                        self.distance_cache[cache_key] = distance
-                        print(f"Distancia calculada con OSRM entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
+                        distance = data['routes'][0]['distance'] / 1000  # Convertir a kilómetros
+                        # Guardar en la caché
+                        self.cache.save_distance(loc1_norm, loc2_norm, distance, 'osrm')
+                        logger.info(f"Distancia calculada con OSRM entre {location1} y {location2}: {distance:.1f} km")
                         return distance
             except Exception as e:
-                print(f"Error con OSRM para {location1}-{location2}: {str(e)}")
+                logger.warning(f"Error usando OSRM: {str(e)}")
             
-            # Si OSRM falla, usar Google Maps Distance Matrix API como fallback
-            try:
-                # Calcular distancia en línea recta como último recurso
-                distance = geodesic(coords1, coords2).kilometers
-                # Añadir un factor de corrección para aproximar la distancia por carretera
-                distance = distance * 1.3  # Factor de corrección típico para carreteras
-                self.distance_cache[cache_key] = distance
-                print(f"Distancia calculada con Geopy entre {location1} ({province1}) y {location2} ({province2}): {distance:.1f} km")
-                return distance
-            except Exception as e:
-                print(f"Error al calcular distancia entre {location1} y {location2}: {str(e)}")
-                return float('inf')
+            # Si OSRM falla, usar Geopy como respaldo
+            distance = geodesic(coords1, coords2).kilometers
+            # Guardar en la caché
+            self.cache.save_distance(loc1_norm, loc2_norm, distance, 'geopy')
+            logger.info(f"Distancia calculada con Geopy entre {location1} y {location2}: {distance:.1f} km")
+            return distance
             
         except Exception as e:
-            print(f"Error general al calcular distancia entre {location1} y {location2}: {str(e)}")
-            return float('inf')
+            logger.error(f"Error calculando distancia entre {location1} y {location2}: {str(e)}")
+            raise
         
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza los nombres de las columnas del DataFrame."""
@@ -252,13 +278,7 @@ class DistanceCalculator:
     def sort_localities_by_distance(self, reference_locations: List[Dict], localities: List[Dict]) -> List[Dict]:
         """
         Ordena las localidades siguiendo el criterio de proximidad a las localidades de referencia.
-        
-        Args:
-            reference_locations: Lista de diccionarios con localidades de referencia en orden de prioridad
-            localities: Lista de diccionarios con localidades a ordenar
-            
-        Returns:
-            Lista ordenada de localidades
+        Solo calcula distancias desde las ciudades de referencia.
         """
         print("\nIniciando ordenación de localidades...")
         print(f"Número de localidades de referencia: {len(reference_locations)}")
@@ -291,17 +311,23 @@ class DistanceCalculator:
             distances = []
             for ref_loc in reference_locations:
                 try:
-                    distance = self.get_distance(
-                        ref_loc['nombre'], ref_loc['Provincia'],
-                        locality['Localidad'], locality['Provincia']
-                    )
-                    # Verificar si la localidad está dentro del radio de la ciudad de referencia
-                    if distance <= ref_loc.get('radio', 50):
-                        distances.append((ref_loc['nombre'], distance))
-                        print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) dentro del radio de {ref_loc['nombre']} ({distance:.1f} km)")
+                    # Solo calculamos la distancia si la localidad actual no es una ciudad de referencia
+                    if locality['Localidad'] != ref_loc['nombre']:
+                        distance = self.get_distance(
+                            ref_loc['nombre'], ref_loc['Provincia'],
+                            locality['Localidad'], locality['Provincia']
+                        )
+                        # Verificar si la localidad está dentro del radio de la ciudad de referencia
+                        if distance <= ref_loc.get('radio', 50):
+                            distances.append((ref_loc['nombre'], distance))
+                            print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) dentro del radio de {ref_loc['nombre']} ({distance:.1f} km)")
+                        else:
+                            print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) fuera del radio de {ref_loc['nombre']} ({distance:.1f} km > {ref_loc.get('radio', 50)} km)")
+                            distances.append((ref_loc['nombre'], float('inf')))
                     else:
-                        print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) fuera del radio de {ref_loc['nombre']} ({distance:.1f} km > {ref_loc.get('radio', 50)} km)")
-                        distances.append((ref_loc['nombre'], float('inf')))
+                        # Si es la misma ciudad, distancia 0
+                        distances.append((ref_loc['nombre'], 0.0))
+                        print(f"Localidad {locality['Localidad']} es la ciudad de referencia {ref_loc['nombre']}")
                 except Exception as e:
                     print(f"Error calculando distancia entre {ref_loc['nombre']} y {locality['Localidad']}: {str(e)}")
                     distances.append((ref_loc['nombre'], float('inf')))
@@ -320,10 +346,9 @@ class DistanceCalculator:
             locality_distances.append((locality, min_distance, closest_ref_index, closest_ref_name))
             print(f"Localidad {locality['Localidad']} ({locality['Provincia']}) más cercana a {closest_ref_name} (índice {closest_ref_index})")
         
-        # Filter out localities that are outside the radius of their closest reference
-        # These are the ones where min_distance is still float('inf')
+        # Filtrar localidades que están fuera del radio de su referencia más cercana
         valid_locality_distances = [item for item in locality_distances if item[1] != float('inf')]
-        
+
         # Ordenar las localidades:
         # 1. Primero por el índice de la localidad de referencia más cercana (prioridad)
         # 2. Luego por la distancia a esa localidad de referencia
@@ -331,15 +356,18 @@ class DistanceCalculator:
             locality, distance, ref_index, ref_name = item
             return (ref_index, distance)
 
-        # Sort the filtered list
+        # Ordenar la lista filtrada
         sorted_valid_localities = sorted(valid_locality_distances, key=sort_key)
 
-        # Extract just the locality dictionaries from the sorted list
+        # Extraer solo los diccionarios de localidades de la lista ordenada
         final_order = [loc for loc, _, _, _ in sorted_valid_localities]
 
         # Imprimir el orden final
         print("\nOrden final de localidades:")
         for i, loc in enumerate(final_order):
             print(f"{i+1}. {loc['Localidad']} ({loc['Provincia']})")
+        
+        # Imprimir estadísticas de la caché
+        self.cache.print_stats()
         
         return final_order 

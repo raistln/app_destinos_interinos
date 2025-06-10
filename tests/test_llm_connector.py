@@ -1,10 +1,9 @@
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock, mock_open
-from src.llm_connector import LLMConnector
-from src.exceptions import LLMError, ConfiguracionError, ValidacionError, APIError
-# Import DistanceCalculator to mock it directly
-from src.distance_calculator import DistanceCalculator
+from llm_connector import LLMConnector
+from exceptions import LLMError, ConfiguracionError, ValidacionError, APIError
+from distance_calculator import DistanceCalculator
 import requests
 
 @pytest.fixture

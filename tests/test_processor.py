@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from src.processor import DataProcessor
+from processor import DataProcessor
 import os
 import yaml
 from pathlib import Path

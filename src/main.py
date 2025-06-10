@@ -7,6 +7,7 @@ import os
 from processor import DataProcessor
 from llm_connector import LLMConnector
 from styles import apply_custom_styles
+from distance_calculator import DistanceCalculator
 
 # Cargar variables de entorno
 load_dotenv()
@@ -151,11 +152,21 @@ def render_sidebar():
             if st.button("➕", help="Añadir ciudad"):
                 if nueva_ciudad.strip():
                     if not any(c['nombre'].lower() == nueva_ciudad.strip().lower() for c in st.session_state.ciudades_preferencia):
-                        st.session_state.ciudades_preferencia.append({
-                            'nombre': nueva_ciudad.strip(),
-                            'radio': 50
-                        })
-                        st.rerun()
+                        # Cargar la ciudad en la base de datos
+                        calculator = DistanceCalculator()
+                        try:
+                            # Intentar obtener las coordenadas de la ciudad
+                            coords = calculator._get_coordinates(nueva_ciudad.strip(), provincias_seleccionadas[0] if provincias_seleccionadas else "Granada")
+                            if coords:
+                                st.session_state.ciudades_preferencia.append({
+                                    'nombre': nueva_ciudad.strip(),
+                                    'radio': 50
+                                })
+                                st.rerun()
+                            else:
+                                st.error(f"No se pudieron obtener las coordenadas para {nueva_ciudad.strip()}")
+                        except Exception as e:
+                            st.error(f"Error al cargar la ciudad: {str(e)}")
                     else:
                         st.warning("Esta ciudad ya está en la lista")
         

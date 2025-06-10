@@ -6,6 +6,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def adapt_datetime(dt: datetime) -> str:
+    """Adapta un objeto datetime a string para SQLite."""
+    return dt.isoformat()
+
+def convert_datetime(s: str) -> datetime:
+    """Convierte un string de SQLite a datetime."""
+    return datetime.fromisoformat(s)
+
+# Registrar los adaptadores de fecha/hora
+sqlite3.register_adapter(datetime, adapt_datetime)
+sqlite3.register_converter("datetime", convert_datetime)
+
 class DatabaseManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -20,7 +32,7 @@ class DatabaseManager:
 
     def _init_db(self):
         """Initialize the database with required tables."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
             cursor = conn.cursor()
             
             # Create ciudades_referencia table
@@ -85,7 +97,7 @@ class DatabaseManager:
 
     def get_connection(self) -> sqlite3.Connection:
         """Get a database connection."""
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
 
     def backup_database(self, backup_path: str):
         """Create a backup of the database."""

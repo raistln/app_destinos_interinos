@@ -1,5 +1,5 @@
 import pytest
-from src.exceptions import (
+from exceptions import (
     PreferenciaInterinosError, ConfiguracionError, LLMError, DistanciaError,
     DatosError, ValidacionError, APIError, ArchivoError
 )

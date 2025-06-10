@@ -1,78 +1,48 @@
-import os
 import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from database.db_manager import DatabaseManager
+from distance_calculator import DistanceCalculator
 import logging
-import yaml
-from pathlib import Path
-from datetime import datetime
 
-# Add src to Python path
-sys.path.append(str(Path(__file__).parent.parent.parent))
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-from src.database.db_manager import DatabaseManager
-from src.services.geocoding_service import GeocodingService
-from src.services.distance_service import OptimizedDistanceService
-
-def setup_logging(config):
-    """Set up logging configuration."""
-    log_dir = os.path.dirname(config['logging']['file'])
-    os.makedirs(log_dir, exist_ok=True)
-    
-    logging.basicConfig(
-        level=config['logging']['level'],
-        format=config['logging']['format'],
-        handlers=[
-            logging.FileHandler(config['logging']['file']),
-            logging.StreamHandler()
-        ]
-    )
-
-def load_config():
-    """Load configuration from YAML file."""
-    config_path = Path(__file__).parent.parent.parent / 'config' / 'database.yaml'
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-def init_database(config):
-    """Initialize database and create necessary directories."""
-    # Create data directory
-    os.makedirs(os.path.dirname(config['database']['path']), exist_ok=True)
-    os.makedirs(config['database']['backup_path'], exist_ok=True)
-    
-    # Initialize database
-    db_manager = DatabaseManager(config['database']['path'])
-    return db_manager
-
-def main():
-    """Main initialization function."""
-    # Load configuration
-    config = load_config()
-    
-    # Setup logging
-    setup_logging(config)
-    logger = logging.getLogger(__name__)
-    
+def init_database():
+    """Inicializa la base de datos con las ciudades de referencia."""
     try:
-        # Initialize database
-        logger.info("Initializing database...")
-        db_manager = init_database(config)
+        # Inicializar la base de datos
+        db = DatabaseManager("data/distancias_cache.db")
+        calculator = DistanceCalculator()
         
-        # Initialize services
-        geocoding_service = GeocodingService(db_manager)
-        distance_service = OptimizedDistanceService(db_manager)
+        # Lista de ciudades de referencia (puedes modificarla según tus necesidades)
+        ciudades_referencia = [
+            {"nombre": "Granada", "provincia": "Granada"},
+            {"nombre": "Almería", "provincia": "Almería"},
+            {"nombre": "Cádiz", "provincia": "Cádiz"},
+            {"nombre": "Córdoba", "provincia": "Córdoba"},
+            {"nombre": "Huelva", "provincia": "Huelva"},
+            {"nombre": "Jaén", "provincia": "Jaén"},
+            {"nombre": "Málaga", "provincia": "Málaga"},
+            {"nombre": "Sevilla", "provincia": "Sevilla"}
+        ]
         
-        # Create backup
-        backup_path = os.path.join(
-            config['database']['backup_path'],
-            f"initial_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-        )
-        db_manager.backup_database(backup_path)
+        # Cargar cada ciudad de referencia
+        for ciudad in ciudades_referencia:
+            try:
+                coords = calculator._get_coordinates(ciudad["nombre"], ciudad["provincia"])
+                if coords:
+                    logger.info(f"Ciudad de referencia cargada: {ciudad['nombre']} ({coords[0]}, {coords[1]})")
+                else:
+                    logger.error(f"No se pudieron obtener coordenadas para {ciudad['nombre']}")
+            except Exception as e:
+                logger.error(f"Error cargando {ciudad['nombre']}: {str(e)}")
         
-        logger.info("Database initialization completed successfully")
-        logger.info(f"Database backup created at: {backup_path}")
+        logger.info("Base de datos inicializada correctamente")
         
     except Exception as e:
-        logger.error(f"Database initialization failed: {str(e)}")
-        sys.exit(1)
+        logger.error(f"Error inicializando la base de datos: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    init_database() 

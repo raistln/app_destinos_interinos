@@ -51,6 +51,7 @@ venv.bak/
 /data/*.log
 /data/*.bak
 /data/*.cache
+/data/*.csv
 /saved_configs/*
 !/saved_configs/.gitkeep
 config/settings.yaml
@@ -73,8 +74,6 @@ desktop.ini
 # Cache
 .cache/
 .pytest_cache/
-.coverage
-htmlcov/
 
 # Local configuration
 .env.local
