@@ -31,7 +31,26 @@ class DistanceCalculator:
             Diccionario con la información de la localidad o None si no se encuentra
         """
         try:
-            # Primero intentar obtener de la base de datos si tenemos provincia
+            # Primero intentar obtener de la base de datos sin provincia
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT latitud, longitud, provincia
+                    FROM ciudades
+                    WHERE nombre = ?
+                """, (location,))
+                result = cursor.fetchone()
+                
+                if result:
+                    logger.info(f"Ubicación encontrada en base de datos: {location} ({result[2]})")
+                    return {
+                        'nombre': location,
+                        'provincia': result[2],
+                        'latitud': result[0],
+                        'longitud': result[1]
+                    }
+            
+            # Si no está en la base de datos y tenemos provincia, intentar con provincia
             if province:
                 with self.db_manager.get_connection() as conn:
                     cursor = conn.cursor()
@@ -51,7 +70,7 @@ class DistanceCalculator:
                             'longitud': result[1]
                         }
             
-            # Si no está en la base de datos o no tenemos provincia, geocodificar
+            # Si no está en la base de datos, geocodificar
             time.sleep(1)  # Rate limiting
             
             # Usar el servicio de búsqueda de OpenStreetMap
@@ -169,25 +188,32 @@ class DistanceCalculator:
             Distancia en kilómetros o None si no se puede calcular
         """
         try:
-            # Obtener información de las localidades
+            logger.info(f"🔄 Iniciando cálculo de distancia entre {location1} y {location2}")
+            
+            # Primero intentar obtener de la caché usando solo los nombres
+            cached_distance = self.cache.get_distance(location1, location2)
+            if cached_distance is not None:
+                logger.info(f"✨ Usando distancia de caché: {location1} -> {location2}: {cached_distance:.1f} km")
+                return cached_distance
+
+            logger.info(f"📌 Distancia no encontrada en caché, procediendo a calcular...")
+            
+            # Si no está en caché, obtener coordenadas y calcular
+            logger.info(f"📍 Obteniendo coordenadas para {location1}")
             loc1_info = self._get_coordinates(location1, province1)
             if not loc1_info:
-                logger.error(f"No se pudo obtener información para {location1}")
+                logger.error(f"❌ No se pudo obtener información para {location1}")
                 return None
                 
+            logger.info(f"📍 Obteniendo coordenadas para {location2}")
             loc2_info = self._get_coordinates(location2, province2)
             if not loc2_info:
-                logger.error(f"No se pudo obtener información para {location2}")
+                logger.error(f"❌ No se pudo obtener información para {location2}")
                 return None
-            
-            # Intentar obtener de la caché
-            cached_distance = self.cache.get_distance(loc1_info, loc2_info)
-            if cached_distance is not None:
-                logger.info(f"Distancia en caché: {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {cached_distance:.1f} km")
-                return cached_distance
             
             # Intentar obtener la distancia por carretera usando OSRM
             try:
+                logger.info(f"🚗 Intentando calcular distancia con OSRM...")
                 url = f"{self.osrm_url}/{loc1_info['longitud']},{loc1_info['latitud']};{loc2_info['longitud']},{loc2_info['latitud']}"
                 response = requests.get(url)
                 if response.status_code == 200:
@@ -196,12 +222,13 @@ class DistanceCalculator:
                         distance = data['routes'][0]['distance'] / 1000  # Convertir a kilómetros
                         # Guardar en la caché
                         self.cache.save_distance(loc1_info, loc2_info, distance)
-                        logger.info(f"Distancia calculada (OSRM): {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {distance:.1f} km")
+                        logger.info(f"✅ Distancia calculada con OSRM: {location1} -> {location2}: {distance:.1f} km")
                         return distance
             except Exception as e:
-                logger.warning(f"Error usando OSRM: {str(e)}")
+                logger.warning(f"⚠️ Error usando OSRM: {str(e)}")
             
             # Si OSRM falla, usar Geopy como respaldo
+            logger.info(f"🔄 Usando Geopy como respaldo...")
             distance = geodesic(
                 (loc1_info['latitud'], loc1_info['longitud']),
                 (loc2_info['latitud'], loc2_info['longitud'])
@@ -209,11 +236,11 @@ class DistanceCalculator:
             
             # Guardar en la caché
             self.cache.save_distance(loc1_info, loc2_info, distance)
-            logger.info(f"Distancia calculada (Geopy): {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {distance:.1f} km")
+            logger.info(f"✅ Distancia calculada con Geopy: {location1} -> {location2}: {distance:.1f} km")
             return distance
             
         except Exception as e:
-            logger.error(f"Error calculando distancia: {str(e)}")
+            logger.error(f"❌ Error calculando distancia: {str(e)}")
             return None
         
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:

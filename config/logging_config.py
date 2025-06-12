@@ -1,6 +1,7 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+import sys
 
 def setup_logging(log_level=logging.INFO):
     """
@@ -19,21 +20,27 @@ def setup_logging(log_level=logging.INFO):
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Configurar el handler para archivo
+    # Configurar el handler para archivo con codificación UTF-8
     file_handler = RotatingFileHandler(
         os.path.join(log_dir, 'app.log'),
         maxBytes=10485760,  # 10MB
-        backupCount=5
+        backupCount=5,
+        encoding='utf-8'
     )
     file_handler.setFormatter(log_format)
     
-    # Configurar el handler para consola
-    console_handler = logging.StreamHandler()
+    # Configurar el handler para consola con codificación UTF-8
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_format)
     
     # Configurar el logger raíz
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
+    
+    # Eliminar handlers existentes para evitar duplicados
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
     

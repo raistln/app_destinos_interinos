@@ -4,10 +4,25 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 import os
+import sys
+import logging
+
+# Añadir el directorio raíz al path de Python
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(root_dir)
+
 from processor import DataProcessor
 from llm_connector import LLMConnector
 from styles import apply_custom_styles
 from distance_calculator import DistanceCalculator
+from config.logging_config import setup_logging
+
+# Crear directorio de logs si no existe
+os.makedirs('logs', exist_ok=True)
+
+# Configurar logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # Cargar variables de entorno
 load_dotenv()
