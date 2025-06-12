@@ -32,9 +32,36 @@ class DatabaseManager:
 
     def _init_db(self):
         """Initialize the database with required tables."""
-        with sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
+        with self.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Create ciudades table (simplificada)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ciudades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL,
+                    provincia TEXT NOT NULL,
+                    latitud REAL NOT NULL,
+                    longitud REAL NOT NULL,
+                    es_centro_educativo BOOLEAN DEFAULT FALSE,
+                    UNIQUE(nombre, provincia)
+                )
+            """)
+
+            # Create distancias table (simplificada)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS distancias (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    origen_id INTEGER NOT NULL,
+                    destino_id INTEGER NOT NULL,
+                    distancia_km REAL NOT NULL,
+                    fecha_calculo DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (origen_id) REFERENCES ciudades(id),
+                    FOREIGN KEY (destino_id) REFERENCES ciudades(id),
+                    UNIQUE(origen_id, destino_id)
+                )
+            """)
+
             # Create ciudades_referencia table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ciudades_referencia (

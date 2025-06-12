@@ -19,141 +19,202 @@ class DistanceCalculator:
         self.geocoder = Nominatim(user_agent="destinos_interinos")
         self.osrm_url = "https://router.project-osrm.org/route/v1/driving"
         
-    def _get_coordinates(self, location: str, province: str) -> Tuple[float, float]:
+    def _get_coordinates(self, location: str, province: str = None) -> Optional[Dict]:
         """
-        Obtiene las coordenadas de una localidad usando el caché si está disponible.
+        Obtiene las coordenadas de una localidad.
         
         Args:
             location: Nombre de la localidad
-            province: Nombre de la provincia
+            province: Provincia (opcional, solo se usa para búsqueda inicial en la base de datos)
             
         Returns:
-            Tupla con (latitud, longitud)
+            Diccionario con la información de la localidad o None si no se encuentra
         """
-        # Primero intentar obtener de la base de datos
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT latitud, longitud
-                FROM ciudades_referencia
-                WHERE nombre_normalizado = ?
-            """, (f"{location}, {province}, España".lower(),))
-            result = cursor.fetchone()
-            
-            if result:
-                return result
-            
         try:
-            # Añadir un pequeño delay para no sobrecargar la API
-            time.sleep(3)
-            
-            # Intentar primero con el nombre y Andalucía
-            location_data = self.geocoder.geocode(f"{location}, Andalucía, España", timeout=10)
-            
-            # Si no se encuentra, intentar con más contexto
-            if not location_data:
-                # Intentar con "Municipio de" o "Villa de"
-                for prefix in ["Municipio de", "Villa de"]:
-                    alt_query = f"{prefix} {location}, Andalucía, España"
-                    location_data = self.geocoder.geocode(alt_query, timeout=10)
-                    if location_data:
-                        break
-            
-            if location_data:
-                coords = (location_data.latitude, location_data.longitude)
-                # Guardar en la base de datos
+            # Primero intentar obtener de la base de datos si tenemos provincia
+            if province:
                 with self.db_manager.get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("""
-                        INSERT INTO ciudades_referencia (nombre_normalizado, latitud, longitud)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(nombre_normalizado) DO UPDATE SET
-                            latitud = excluded.latitud,
-                            longitud = excluded.longitud
-                    """, (f"{location}, {province}, España".lower(), coords[0], coords[1]))
-                    conn.commit()
-                logger.info(f"Coordenadas guardadas en la base de datos para {location}, {province}")
-                return coords
-            else:
-                logger.warning(f"No se encontraron coordenadas para {location}, {province}")
-                # Intentar con una búsqueda más amplia
-                location_data = self.geocoder.geocode(f"{location}, España", timeout=10)
-                if location_data:
-                    coords = (location_data.latitude, location_data.longitude)
-                    # Guardar en la base de datos
-                    with self.db_manager.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            INSERT INTO ciudades_referencia (nombre_normalizado, latitud, longitud)
-                            VALUES (?, ?, ?)
-                            ON CONFLICT(nombre_normalizado) DO UPDATE SET
-                                latitud = excluded.latitud,
-                                longitud = excluded.longitud
-                        """, (f"{location}, {province}, España".lower(), coords[0], coords[1]))
-                        conn.commit()
-                    logger.info(f"Coordenadas guardadas en la base de datos (búsqueda amplia) para {location}, {province}")
-                    return coords
-                raise ValueError(f"No se encontraron coordenadas para {location}, {province}")
-        except Exception as e:
-            logger.error(f"Error al obtener coordenadas para {location}, {province}: {str(e)}")
+                        SELECT latitud, longitud, provincia
+                        FROM ciudades
+                        WHERE nombre = ? AND provincia = ?
+                    """, (location, province))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        logger.info(f"Ubicación encontrada en base de datos: {location} ({result[2]})")
+                        return {
+                            'nombre': location,
+                            'provincia': result[2],
+                            'latitud': result[0],
+                            'longitud': result[1]
+                        }
+            
+            # Si no está en la base de datos o no tenemos provincia, geocodificar
+            time.sleep(1)  # Rate limiting
+            
+            # Usar el servicio de búsqueda de OpenStreetMap
+            base_url = "https://nominatim.openstreetmap.org/search"
+            headers = {
+                'User-Agent': 'DestinosInterinos/1.0'
+            }
+            
+            # Lista de posibles formatos de búsqueda, priorizando Andalucía
+            search_queries = [
+                f"{location}, Andalucía, España",
+                f"{location}, Almería, Andalucía, España",
+                f"{location}, Granada, Andalucía, España",
+                f"{location}, Málaga, Andalucía, España",
+                f"{location}, Cádiz, Andalucía, España",
+                f"{location}, Córdoba, Andalucía, España",
+                f"{location}, Huelva, Andalucía, España",
+                f"{location}, Jaén, Andalucía, España",
+                f"{location}, Sevilla, Andalucía, España",
+                f"{location}, España"
+            ]
+            
+            for query in search_queries:
+                try:
+                    params = {
+                        'q': query,
+                        'format': 'json',
+                        'limit': 5,  # Aumentamos el límite para tener más opciones
+                        'addressdetails': 1,
+                        'countrycodes': 'es'
+                    }
+                    
+                    logger.info(f"Intentando geocodificar: {query}")
+                    response = requests.get(base_url, params=params, headers=headers)
+                    
+                    if response.status_code == 200:
+                        results = response.json()
+                        if results:
+                            # Buscar el primer resultado que esté en Andalucía
+                            for result in results:
+                                address = result.get('display_name', '')
+                                if 'Andalucía' in address or 'Andalucia' in address:
+                                    # Extraer la provincia del resultado
+                                    address_parts = address.split(',')
+                                    detected_province = None
+                                    
+                                    for part in address_parts:
+                                        part = part.strip()
+                                        # Mapeo de nombres de provincias con/sin tildes
+                                        province_mapping = {
+                                            'Granada': 'Granada',
+                                            'Almería': 'Almería',
+                                            'Almeria': 'Almería',
+                                            'Cádiz': 'Cádiz',
+                                            'Cadiz': 'Cádiz',
+                                            'Córdoba': 'Córdoba',
+                                            'Cordoba': 'Córdoba',
+                                            'Huelva': 'Huelva',
+                                            'Jaén': 'Jaén',
+                                            'Jaen': 'Jaén',
+                                            'Málaga': 'Málaga',
+                                            'Malaga': 'Málaga',
+                                            'Sevilla': 'Sevilla'
+                                        }
+                                        if part in province_mapping:
+                                            detected_province = province_mapping[part]
+                                            break
+                                    
+                                    if detected_province:
+                                        location_info = {
+                                            'nombre': location,
+                                            'provincia': detected_province,
+                                            'latitud': float(result['lat']),
+                                            'longitud': float(result['lon']),
+                                            'address': address
+                                        }
+                                        
+                                        # Guardar en la base de datos para futuras consultas
+                                        with self.db_manager.get_connection() as conn:
+                                            cursor = conn.cursor()
+                                            cursor.execute("""
+                                                INSERT OR REPLACE INTO ciudades (nombre, provincia, latitud, longitud)
+                                                VALUES (?, ?, ?, ?)
+                                            """, (location_info['nombre'], location_info['provincia'], 
+                                                  location_info['latitud'], location_info['longitud']))
+                                            conn.commit()
+                                        
+                                        logger.info(f"Ubicación guardada para {location}: {address}")
+                                        return location_info
+                            
+                            logger.warning(f"No se encontró la localidad en Andalucía: {location}")
+                    
+                except Exception as e:
+                    logger.warning(f"Error en búsqueda con query '{query}': {str(e)}")
+                    continue
+            
+            logger.warning(f"No se encontraron coordenadas válidas para {location}")
             return None
             
-    def get_distance(self, location1: str, province1: str, location2: str, province2: str) -> float:
+        except Exception as e:
+            logger.error(f"Error obteniendo coordenadas: {str(e)}")
+            return None
+            
+    def get_distance(self, location1: str, province1: str = None, location2: str = None, province2: str = None) -> Optional[float]:
         """
         Calcula la distancia por carretera entre dos localidades en kilómetros.
         
         Args:
             location1: Nombre de la primera localidad
-            province1: Provincia de la primera localidad
+            province1: Provincia de la primera localidad (opcional)
             location2: Nombre de la segunda localidad
-            province2: Provincia de la segunda localidad
+            province2: Provincia de la segunda localidad (opcional)
             
         Returns:
-            Distancia en kilómetros
+            Distancia en kilómetros o None si no se puede calcular
         """
         try:
-            # Normalizar nombres de localidades
-            loc1_norm = f"{location1}, {province1}, España".lower()
-            loc2_norm = f"{location2}, {province2}, España".lower()
+            # Obtener información de las localidades
+            loc1_info = self._get_coordinates(location1, province1)
+            if not loc1_info:
+                logger.error(f"No se pudo obtener información para {location1}")
+                return None
+                
+            loc2_info = self._get_coordinates(location2, province2)
+            if not loc2_info:
+                logger.error(f"No se pudo obtener información para {location2}")
+                return None
             
             # Intentar obtener de la caché
-            cached_distance = self.cache.get_distance(loc1_norm, loc2_norm)
+            cached_distance = self.cache.get_distance(loc1_info, loc2_info)
             if cached_distance is not None:
-                logger.info(f"Distancia obtenida de la caché entre {location1} y {location2}: {cached_distance:.1f} km")
+                logger.info(f"Distancia en caché: {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {cached_distance:.1f} km")
                 return cached_distance
-            
-            # Si no está en caché, obtener coordenadas
-            coords1 = self._get_coordinates(location1, province1)
-            coords2 = self._get_coordinates(location2, province2)
-            
-            if not coords1 or not coords2:
-                raise ValueError("No se pudieron obtener las coordenadas para alguna de las localidades")
             
             # Intentar obtener la distancia por carretera usando OSRM
             try:
-                url = f"{self.osrm_url}/{coords1[1]},{coords1[0]};{coords2[1]},{coords2[0]}"
+                url = f"{self.osrm_url}/{loc1_info['longitud']},{loc1_info['latitud']};{loc2_info['longitud']},{loc2_info['latitud']}"
                 response = requests.get(url)
                 if response.status_code == 200:
                     data = response.json()
                     if data['code'] == 'Ok':
                         distance = data['routes'][0]['distance'] / 1000  # Convertir a kilómetros
                         # Guardar en la caché
-                        self.cache.save_distance(loc1_norm, loc2_norm, distance, 'osrm')
-                        logger.info(f"Distancia calculada con OSRM entre {location1} y {location2}: {distance:.1f} km")
+                        self.cache.save_distance(loc1_info, loc2_info, distance)
+                        logger.info(f"Distancia calculada (OSRM): {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {distance:.1f} km")
                         return distance
             except Exception as e:
                 logger.warning(f"Error usando OSRM: {str(e)}")
             
             # Si OSRM falla, usar Geopy como respaldo
-            distance = geodesic(coords1, coords2).kilometers
+            distance = geodesic(
+                (loc1_info['latitud'], loc1_info['longitud']),
+                (loc2_info['latitud'], loc2_info['longitud'])
+            ).kilometers
+            
             # Guardar en la caché
-            self.cache.save_distance(loc1_norm, loc2_norm, distance, 'geopy')
-            logger.info(f"Distancia calculada con Geopy entre {location1} y {location2}: {distance:.1f} km")
+            self.cache.save_distance(loc1_info, loc2_info, distance)
+            logger.info(f"Distancia calculada (Geopy): {location1} ({loc1_info['provincia']}) -> {location2} ({loc2_info['provincia']}): {distance:.1f} km")
             return distance
             
         except Exception as e:
-            logger.error(f"Error calculando distancia entre {location1} y {location2}: {str(e)}")
-            raise
+            logger.error(f"Error calculando distancia: {str(e)}")
+            return None
         
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza los nombres de las columnas del DataFrame."""
