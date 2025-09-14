@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Optional
 import time
 import requests
 import tempfile
-from database.db_manager import DatabaseManager
+from database.supabase_manager import SupabaseManager
 from database.distance_cache import DistanceCache
 import logging
 
@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 class DistanceCalculator:
     def __init__(self):
-        self.db_manager = DatabaseManager("data/distancias_cache.db")
-        self.cache = DistanceCache(self.db_manager)
+        self.supabase_manager = SupabaseManager()
+        self.cache = DistanceCache(self.supabase_manager)
         self.geocoder = Nominatim(user_agent="destinos_interinos")
         self.osrm_url = "https://router.project-osrm.org/route/v1/driving"
         
@@ -31,44 +31,11 @@ class DistanceCalculator:
             Diccionario con la información de la localidad o None si no se encuentra
         """
         try:
-            # Primero intentar obtener de la base de datos sin provincia
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT latitud, longitud, provincia
-                    FROM ciudades
-                    WHERE nombre = ?
-                """, (location,))
-                result = cursor.fetchone()
-                
-                if result:
-                    logger.info(f"Ubicación encontrada en base de datos: {location} ({result[2]})")
-                    return {
-                        'nombre': location,
-                        'provincia': result[2],
-                        'latitud': result[0],
-                        'longitud': result[1]
-                    }
-            
-            # Si no está en la base de datos y tenemos provincia, intentar con provincia
-            if province:
-                with self.db_manager.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT latitud, longitud, provincia
-                        FROM ciudades
-                        WHERE nombre = ? AND provincia = ?
-                    """, (location, province))
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        logger.info(f"Ubicación encontrada en base de datos: {location} ({result[2]})")
-                        return {
-                            'nombre': location,
-                            'provincia': result[2],
-                            'latitud': result[0],
-                            'longitud': result[1]
-                        }
+            # Primero intentar obtener de la base de datos
+            city_info = self.supabase_manager.get_city_coordinates(location, province)
+            if city_info:
+                logger.info(f"Ubicación encontrada en base de datos: {location} ({city_info['provincia']})")
+                return city_info
             
             # Si no está en la base de datos, geocodificar
             time.sleep(1)  # Rate limiting
@@ -149,16 +116,10 @@ class DistanceCalculator:
                                         }
                                         
                                         # Guardar en la base de datos para futuras consultas
-                                        with self.db_manager.get_connection() as conn:
-                                            cursor = conn.cursor()
-                                            cursor.execute("""
-                                                INSERT OR REPLACE INTO ciudades (nombre, provincia, latitud, longitud)
-                                                VALUES (?, ?, ?, ?)
-                                            """, (location_info['nombre'], location_info['provincia'], 
-                                                  location_info['latitud'], location_info['longitud']))
-                                            conn.commit()
+                                        success = self.supabase_manager.save_city_coordinates(location_info)
+                                        if success:
+                                            logger.info(f"Ubicación guardada para {location}: {address}")
                                         
-                                        logger.info(f"Ubicación guardada para {location}: {address}")
                                         return location_info
                             
                             logger.warning(f"No se encontró la localidad en Andalucía: {location}")

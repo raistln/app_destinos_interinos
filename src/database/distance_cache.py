@@ -1,113 +1,84 @@
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple
-from .db_manager import DatabaseManager
+from typing import Dict, Optional
 import logging
-import unicodedata
+from database.supabase_manager import SupabaseManager
 
 logger = logging.getLogger(__name__)
 
 class DistanceCache:
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
-        self.distances_df = pd.DataFrame()
-    
-    def _normalize_name(self, name: str) -> str:
-        """Normaliza el nombre de una ciudad para búsquedas consistentes."""
-        # Convertir a minúsculas y eliminar acentos
-        normalized = unicodedata.normalize('NFKD', name.lower())
-        normalized = ''.join([c for c in normalized if not unicodedata.combining(c)])
-        return normalized.strip()
-    
-    def get_distance(self, origen: str, destino: str) -> Optional[float]:
-        """Obtiene la distancia entre dos ciudades desde la base de datos."""
+    def __init__(self, supabase_manager: SupabaseManager = None):
+        self.supabase_manager = supabase_manager or SupabaseManager()
+        self.cache_hits = 0
+        self.cache_misses = 0
+        
+    def get_distance(self, location1: str, location2: str) -> Optional[float]:
+        """
+        Obtiene la distancia entre dos localidades desde la caché.
+        
+        Args:
+            location1: Primera localidad
+            location2: Segunda localidad
+            
+        Returns:
+            Distancia en kilómetros o None si no está en caché
+        """
         try:
-            logger.info(f"Buscando en caché la distancia entre {origen} y {destino}")
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT d.distancia_km
-                    FROM distancias d
-                    JOIN ciudades c1 ON d.origen_id = c1.id
-                    JOIN ciudades c2 ON d.destino_id = c2.id
-                    WHERE LOWER(c1.nombre) = LOWER(?) AND LOWER(c2.nombre) = LOWER(?)
-                """, (origen, destino))
-                result = cursor.fetchone()
-                if result:
-                    logger.info(f"✅ Distancia encontrada en caché: {origen} -> {destino}: {result[0]:.1f} km")
-                else:
-                    logger.info(f"❌ Distancia no encontrada en caché: {origen} -> {destino}")
-                return result[0] if result else None
+            distance = self.supabase_manager.get_cached_distance(location1, location2)
+            
+            if distance is not None:
+                self.cache_hits += 1
+                return distance
+            else:
+                self.cache_misses += 1
+                return None
+                    
         except Exception as e:
-            logger.error(f"Error obteniendo distancia de la caché: {str(e)}")
+            logger.error(f"Error obteniendo distancia de caché: {str(e)}")
+            self.cache_misses += 1
             return None
     
-    def save_distance(self, origen: Dict, destino: Dict, distancia: float):
-        """Guarda una distancia en la base de datos."""
+    def save_distance(self, loc1_info: Dict, loc2_info: Dict, distance: float):
+        """
+        Guarda una distancia en la caché.
+        
+        Args:
+            loc1_info: Información de la primera localidad
+            loc2_info: Información de la segunda localidad
+            distance: Distancia en kilómetros
+        """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Obtener o crear IDs de las ciudades
-                cursor.execute("""
-                    INSERT OR IGNORE INTO ciudades (nombre, provincia, latitud, longitud)
-                    VALUES (?, ?, ?, ?)
-                """, (origen['nombre'], origen['provincia'], 
-                      origen['latitud'], origen['longitud']))
-                
-                cursor.execute("""
-                    INSERT OR IGNORE INTO ciudades (nombre, provincia, latitud, longitud)
-                    VALUES (?, ?, ?, ?)
-                """, (destino['nombre'], destino['provincia'], 
-                      destino['latitud'], destino['longitud']))
-                
-                # Obtener los IDs
-                cursor.execute("""
-                    SELECT id FROM ciudades 
-                    WHERE nombre = ? AND provincia = ?
-                """, (origen['nombre'], origen['provincia']))
-                origen_id = cursor.fetchone()[0]
-                
-                cursor.execute("""
-                    SELECT id FROM ciudades 
-                    WHERE nombre = ? AND provincia = ?
-                """, (destino['nombre'], destino['provincia']))
-                destino_id = cursor.fetchone()[0]
-                
-                # Guardar la distancia
-                cursor.execute("""
-                    INSERT INTO distancias (origen_id, destino_id, distancia_km)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(origen_id, destino_id) DO UPDATE SET
-                        distancia_km = excluded.distancia_km,
-                        fecha_calculo = CURRENT_TIMESTAMP
-                """, (origen_id, destino_id, distancia))
-                
-                conn.commit()
-                logger.info(f"Distancia guardada: {origen['nombre']} -> {destino['nombre']}: {distancia:.1f} km")
+            success = self.supabase_manager.save_distance(
+                loc1_info['nombre'], 
+                loc2_info['nombre'], 
+                distance
+            )
+            
+            if not success:
+                logger.warning(f"No se pudo guardar la distancia entre {loc1_info['nombre']} y {loc2_info['nombre']}")
                 
         except Exception as e:
-            logger.error(f"Error guardando distancia: {str(e)}")
+            logger.error(f"Error guardando distancia en caché: {str(e)}")
     
-    def get_cache_stats(self) -> dict:
-        """Obtiene estadísticas de la caché."""
+    def print_stats(self):
+        """Imprime estadísticas de la caché."""
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            # Obtener estadísticas de la base de datos
+            db_stats = self.supabase_manager.get_cache_stats()
+            
+            total_requests = self.cache_hits + self.cache_misses
+            if total_requests > 0:
+                hit_rate = (self.cache_hits / total_requests) * 100
+                print(f"\n📊 Estadísticas de caché:")
+                print(f"   Hits en esta sesión: {self.cache_hits}")
+                print(f"   Misses en esta sesión: {self.cache_misses}")
+                print(f"   Hit rate de sesión: {hit_rate:.1f}%")
+                print(f"   Total ciudades en BD: {db_stats['ciudades']}")
+                print(f"   Total distancias en BD: {db_stats['distancias']}")
+            else:
+                print(f"\n📊 Estadísticas de base de datos:")
+                print(f"   Total ciudades: {db_stats['ciudades']}")
+                print(f"   Total distancias: {db_stats['distancias']}")
+                print("   No hay estadísticas de sesión disponibles")
                 
-                # Total de distancias
-                cursor.execute("SELECT COUNT(*) FROM distancias")
-                total = cursor.fetchone()[0]
-                
-                # Total de ciudades
-                cursor.execute("SELECT COUNT(*) FROM ciudades")
-                total_ciudades = cursor.fetchone()[0]
-                
-                return {
-                    'total_distancias': total,
-                    'total_ciudades': total_ciudades,
-                    'porcentaje_completado': (total / (total_ciudades * (total_ciudades - 1))) * 100 if total_ciudades > 1 else 0
-                }
         except Exception as e:
             logger.error(f"Error obteniendo estadísticas: {str(e)}")
-            return {} 
+            print("\n📊 No se pudieron obtener estadísticas de caché") 
