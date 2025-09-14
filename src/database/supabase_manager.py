@@ -20,30 +20,48 @@ class SupabaseManager:
         """Inicializa el gestor de Supabase."""
         self.supabase_url = self._get_supabase_url()
         self.supabase_key = self._get_supabase_key()
+        
+        # Validar que tenemos las credenciales necesarias
+        if not self.supabase_url:
+            raise ValueError("SUPABASE_URL no está configurada. Verifica tu archivo secrets.toml o variables de entorno.")
+        if not self.supabase_key:
+            raise ValueError("SUPABASE_KEY no está configurada. Verifica tu archivo secrets.toml o variables de entorno.")
+            
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
         self._initialize_tables()
     
     def _get_supabase_url(self) -> str:
         """Obtiene la URL de Supabase desde las variables de entorno o secrets."""
+        # Cargar .env solo una vez
         load_dotenv()
+        
+        # Prioridad: 1. Streamlit secrets, 2. Variables de entorno
+        try:
+            if hasattr(st, 'secrets') and "SUPABASE_URL" in st.secrets:
+                return st.secrets["SUPABASE_URL"]
+        except Exception:
+            # st.secrets puede no estar disponible en algunos contextos
+            pass
+        
+        # Fallback a variables de entorno
         url = os.getenv("SUPABASE_URL")
-
-        if "SUPABASE_URL" in st.secrets:  # En Cloud
-            url = st.secrets["SUPABASE_URL"]
-        else:  # En local
-            url = os.getenv("SUPABASE_URL")
-        return url
+        return url if url else ""
     
     def _get_supabase_key(self) -> str:
         """Obtiene la clave de Supabase desde las variables de entorno o secrets."""
-        load_dotenv()
+        # No necesitamos load_dotenv() de nuevo, ya se cargó en _get_supabase_url
+        
+        # Prioridad: 1. Streamlit secrets, 2. Variables de entorno
+        try:
+            if hasattr(st, 'secrets') and "SUPABASE_KEY" in st.secrets:
+                return st.secrets["SUPABASE_KEY"]
+        except Exception:
+            # st.secrets puede no estar disponible en algunos contextos
+            pass
+        
+        # Fallback a variables de entorno
         key = os.getenv("SUPABASE_KEY")
-
-        if "SUPABASE_KEY" in st.secrets:  # En Cloud
-            key = st.secrets["SUPABASE_KEY"]
-        else:  # En local
-            key = os.getenv("SUPABASE_KEY")
-        return key
+        return key if key else ""
     
     def _initialize_tables(self):
         """Inicializa las tablas necesarias si no existen."""
