@@ -23,45 +23,40 @@ class SupabaseManager:
         
         # Validar que tenemos las credenciales necesarias
         if not self.supabase_url:
-            raise ValueError("SUPABASE_URL no está configurada. Verifica tu archivo secrets.toml o variables de entorno.")
+            raise ValueError("SUPABASE_URL no está configurada. Verifica tu archivo .streamlit/secrets.toml o variables de entorno.")
         if not self.supabase_key:
-            raise ValueError("SUPABASE_KEY no está configurada. Verifica tu archivo secrets.toml o variables de entorno.")
+            raise ValueError("SUPABASE_KEY no está configurada. Verifica tu archivo .streamlit/secrets.toml o variables de entorno.")
             
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
         self._initialize_tables()
     
     def _get_supabase_url(self) -> str:
-        """Obtiene la URL de Supabase desde las variables de entorno o secrets."""
-        # Cargar .env solo una vez
-        load_dotenv()
-        
-        # Prioridad: 1. Streamlit secrets, 2. Variables de entorno
+        """Obtiene la URL de Supabase desde secrets o variables de entorno."""
+        # 1. Prioridad: Streamlit secrets
         try:
             if hasattr(st, 'secrets') and "SUPABASE_URL" in st.secrets:
                 return st.secrets["SUPABASE_URL"]
-        except Exception:
-            # st.secrets puede no estar disponible en algunos contextos
-            pass
+        except Exception as e:
+            logger.debug(f"No se pudo acceder a st.secrets: {e}")
         
-        # Fallback a variables de entorno
+        # 2. Fallback: Variables de entorno
+        load_dotenv()
         url = os.getenv("SUPABASE_URL")
-        return url if url else ""
+        return url or ""
     
     def _get_supabase_key(self) -> str:
-        """Obtiene la clave de Supabase desde las variables de entorno o secrets."""
-        # No necesitamos load_dotenv() de nuevo, ya se cargó en _get_supabase_url
-        
-        # Prioridad: 1. Streamlit secrets, 2. Variables de entorno
+        """Obtiene la clave de Supabase desde secrets o variables de entorno."""
+        # 1. Prioridad: Streamlit secrets
         try:
             if hasattr(st, 'secrets') and "SUPABASE_KEY" in st.secrets:
                 return st.secrets["SUPABASE_KEY"]
-        except Exception:
-            # st.secrets puede no estar disponible en algunos contextos
-            pass
+        except Exception as e:
+            logger.debug(f"No se pudo acceder a st.secrets: {e}")
         
-        # Fallback a variables de entorno
+        # 2. Fallback: Variables de entorno
+        # load_dotenv() ya se llamó en _get_supabase_url
         key = os.getenv("SUPABASE_KEY")
-        return key if key else ""
+        return key or ""
     
     def _initialize_tables(self):
         """Inicializa las tablas necesarias si no existen."""
