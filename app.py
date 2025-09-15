@@ -262,7 +262,7 @@ def main():
         1.  **Accede a la plataforma de Mistral:** Ve a [mistral.ai](https://mistral.ai/) y haz clic en el botón **"Try the API"** para registrarte.
         2.  **Ve a "Claves API":** Una vez dentro, en el menú de la izquierda, navega a **"Espacio de Trabajo"** y selecciona **"Claves API"**.
         3.  **Crea una nueva clave:** Haz clic en **"Crear nueva clave"**, dale un nombre y sigue los pasos.
-    4.  **Guarda tu clave:** La clave se mostrará una sola vez. **Cópiala y guárdala en un lugar seguro** para poder usarla en la aplicación.
+        4.  **Guarda tu clave:** La clave se mostrará una sola vez. **Cópiala y guárdala en un lugar seguro** para poder usarla en la aplicación.
     
     """)
     # Renderizar sidebar y obtener configuración
