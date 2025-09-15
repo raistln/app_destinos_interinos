@@ -15,6 +15,9 @@ from llm_connector import LLMConnector
 from styles import apply_custom_styles
 from distance_calculator import DistanceCalculator
 from config.logging_config import setup_logging
+from utils.city_normalizer import normalize_city_name
+from utils.duplicate_cleaner import get_duplicate_count
+from src.exceptions import APIRateLimitError, APIServerError, APITimeoutError, LLMError
 
 # Crear directorio de logs si no existe
 os.makedirs('logs', exist_ok=True)
@@ -55,8 +58,16 @@ def ejecutar_proceso(df, tipo_centro, provincias_seleccionadas, ciudades_lista):
             datos_centros
         )
         return llm_connector.process_with_llm(prompt)
+    except APIRateLimitError as e:
+        return f"⚠️ {str(e)}"
+    except APIServerError as e:
+        return f"🔧 {str(e)}"
+    except APITimeoutError as e:
+        return f"⏰ {str(e)}"
+    except LLMError as e:
+        return f"🤖 Error de API: {str(e)}"
     except Exception as e:
-        return f"Error en el proceso: {str(e)}"
+        return f"❌ Error en el proceso: {str(e)}"
 
 def load_or_create_settings(api_key=None):
     """Carga o crea el archivo de configuración."""
@@ -150,36 +161,64 @@ def render_sidebar():
         )
         
         # Ciudades de preferencia
-        st.markdown("### 🌆 Ciudades de Preferencia")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("### 🌆 Ciudades de Preferencia")
+        with col2:
+            # Mostrar alerta de duplicados si existen
+            try:
+                duplicate_count = get_duplicate_count()
+                if duplicate_count > 0:
+                    if st.button(f"🧹 Limpiar {duplicate_count} duplicados", help="Limpiar ciudades duplicadas"):
+                        st.session_state.show_cleaner = True
+            except:
+                pass  # Ignorar errores de conexión
+        
         if 'ciudades_preferencia' not in st.session_state:
             st.session_state.ciudades_preferencia = []
         
         # Añadir ciudad
         col1, col2 = st.columns([3, 1])
         with col1:
-            nueva_ciudad = st.text_input("Nueva ciudad:")
+            nueva_ciudad = st.text_input("Nueva ciudad:", placeholder="Ej: La Zubia, San Fernando...")
+            # Mostrar preview de normalización en tiempo real
+            if nueva_ciudad.strip():
+                ciudad_normalizada_preview = normalize_city_name(nueva_ciudad.strip())
+                if ciudad_normalizada_preview != nueva_ciudad.strip().lower():
+                    st.caption(f"📍 Se guardará como: **{ciudad_normalizada_preview}**")
         with col2:
             if st.button("➕", help="Añadir ciudad"):
                 if nueva_ciudad.strip():
-                    if not any(c['nombre'].lower() == nueva_ciudad.strip().lower() for c in st.session_state.ciudades_preferencia):
+                    # Normalizar el nombre de la ciudad
+                    ciudad_normalizada = normalize_city_name(nueva_ciudad.strip())
+                    
+                    # Verificar duplicados usando el nombre normalizado
+                    if not any(normalize_city_name(c['nombre']) == ciudad_normalizada for c in st.session_state.ciudades_preferencia):
                         # Cargar la ciudad en la base de datos
                         calculator = DistanceCalculator()
                         try:
-                            # Intentar obtener las coordenadas de la ciudad
-                            coords = calculator._get_coordinates(nueva_ciudad.strip(), provincias_seleccionadas[0] if provincias_seleccionadas else "Granada")
+                            # Intentar obtener las coordenadas de la ciudad usando el nombre normalizado
+                            coords = calculator._get_coordinates(ciudad_normalizada, provincias_seleccionadas[0] if provincias_seleccionadas else "Granada")
                             if coords:
                                 st.session_state.ciudades_preferencia.append({
-                                    'nombre': nueva_ciudad.strip(),
+                                    'nombre': ciudad_normalizada,  # Guardar el nombre normalizado
                                     'provincia': provincias_seleccionadas[0] if provincias_seleccionadas else "Granada",
                                     'radio': 50
                                 })
+                                st.success(f"✅ Ciudad añadida: {ciudad_normalizada}")
                                 st.rerun()
                             else:
-                                st.error(f"No se pudieron obtener las coordenadas para {nueva_ciudad.strip()}")
+                                st.error(f"No se pudieron obtener las coordenadas para {ciudad_normalizada}")
+                        except APIRateLimitError as e:
+                            st.error(f"⚠️ {str(e)}")
+                        except APIServerError as e:
+                            st.error(f"🔧 {str(e)}")
+                        except APITimeoutError as e:
+                            st.error(f"⏰ {str(e)}")
                         except Exception as e:
-                            st.error(f"Error al cargar la ciudad: {str(e)}")
+                            st.error(f"❌ Error al cargar la ciudad: {str(e)}")
                     else:
-                        st.warning("Esta ciudad ya está en la lista")
+                        st.warning(f"La ciudad '{ciudad_normalizada}' ya está en la lista")
         
         # Lista de ciudades
         for i, ciudad in enumerate(st.session_state.ciudades_preferencia):
@@ -232,6 +271,16 @@ def render_sidebar():
                         st.error("❌ Configuración no encontrada")
                 else:
                     st.warning("⚠️ Introduce un nombre para cargar la configuración")
+        
+        # Mostrar limpiador de duplicados si está activado
+        if st.session_state.get('show_cleaner', False):
+            st.markdown("---")
+            from utils.duplicate_cleaner import render_duplicate_cleaner_ui
+            render_duplicate_cleaner_ui()
+            
+            if st.button("❌ Cerrar Limpiador"):
+                st.session_state.show_cleaner = False
+                st.rerun()
         
         return mistral_api_key, provincias_seleccionadas, tipo_centro, modo_test
 
@@ -315,8 +364,30 @@ def main():
                         st.session_state.resultado_actual = resultado
                         
                         st.markdown("### 🎯 Resultados")
-                        st.markdown(resultado)
+                        
+                        # Verificar si el resultado contiene mensajes de error de API
+                        if any(emoji in resultado for emoji in ["⚠️", "🔧", "⏰", "🤖", "❌"]):
+                            # Mostrar el error con formato especial
+                            if "⚠️" in resultado:
+                                st.warning(resultado)
+                            elif "🔧" in resultado or "⏰" in resultado:
+                                st.error(resultado)
+                            elif "🤖" in resultado:
+                                st.error(resultado)
+                            else:
+                                st.error(resultado)
+                        else:
+                            # Mostrar resultado normal
+                            st.markdown(resultado)
                             
+                except APIRateLimitError as e:
+                    st.warning(f"⚠️ {str(e)}")
+                except APIServerError as e:
+                    st.error(f"🔧 {str(e)}")
+                except APITimeoutError as e:
+                    st.error(f"⏰ {str(e)}")
+                except LLMError as e:
+                    st.error(f"🤖 Error de API: {str(e)}")
                 except Exception as e:
                     st.error(f"❌ Error durante el procesamiento: {str(e)}")
     

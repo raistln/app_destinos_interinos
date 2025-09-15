@@ -9,6 +9,7 @@ import tempfile
 from database.supabase_manager import SupabaseManager
 from database.distance_cache import DistanceCache
 import logging
+from exceptions import APIRateLimitError, APIServerError, APITimeoutError, DistanciaError
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,21 @@ class DistanceCalculator:
                     }
                     
                     logger.info(f"Intentando geocodificar: {query}")
-                    response = requests.get(base_url, params=params, headers=headers)
+                    response = requests.get(base_url, params=params, headers=headers, timeout=10)
                     
-                    if response.status_code == 200:
+                    # Manejar errores específicos de la API
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get('Retry-After', 300))
+                        raise APIRateLimitError(
+                            f"Se ha excedido el límite de la API de geocodificación. Prueba en {retry_after//60} minutos.",
+                            retry_after
+                        )
+                    elif response.status_code in [500, 502, 503, 504]:
+                        raise APIServerError(
+                            "Servidores de geocodificación saturados. Prueba en 5 minutos.",
+                            300
+                        )
+                    elif response.status_code == 200:
                         results = response.json()
                         if results:
                             # Buscar el primer resultado que esté en Andalucía
@@ -124,6 +137,14 @@ class DistanceCalculator:
                             
                             logger.warning(f"No se encontró la localidad en Andalucía: {location}")
                     
+                except requests.exceptions.Timeout:
+                    raise APITimeoutError(
+                        "La API de geocodificación no responde. Verifica tu conexión e inténtalo de nuevo.",
+                        60
+                    )
+                except (APIRateLimitError, APIServerError, APITimeoutError):
+                    # Re-lanzar errores específicos de API
+                    raise
                 except Exception as e:
                     logger.warning(f"Error en búsqueda con query '{query}': {str(e)}")
                     continue
@@ -176,8 +197,21 @@ class DistanceCalculator:
             try:
                 logger.info(f"🚗 Intentando calcular distancia con OSRM...")
                 url = f"{self.osrm_url}/{loc1_info['longitud']},{loc1_info['latitud']};{loc2_info['longitud']},{loc2_info['latitud']}"
-                response = requests.get(url)
-                if response.status_code == 200:
+                response = requests.get(url, timeout=10)
+                
+                # Manejar errores específicos de OSRM
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 300))
+                    raise APIRateLimitError(
+                        f"Se ha excedido el límite de la API de rutas. Prueba en {retry_after//60} minutos.",
+                        retry_after
+                    )
+                elif response.status_code in [500, 502, 503, 504]:
+                    raise APIServerError(
+                        "Servidores de rutas saturados. Prueba en 5 minutos.",
+                        300
+                    )
+                elif response.status_code == 200:
                     data = response.json()
                     if data['code'] == 'Ok':
                         distance = data['routes'][0]['distance'] / 1000  # Convertir a kilómetros
@@ -185,6 +219,14 @@ class DistanceCalculator:
                         self.cache.save_distance(loc1_info, loc2_info, distance)
                         logger.info(f"✅ Distancia calculada con OSRM: {location1} -> {location2}: {distance:.1f} km")
                         return distance
+            except requests.exceptions.Timeout:
+                raise APITimeoutError(
+                    "La API de rutas no responde. Verifica tu conexión e inténtalo de nuevo.",
+                    60
+                )
+            except (APIRateLimitError, APIServerError, APITimeoutError):
+                # Re-lanzar errores específicos de API
+                raise
             except Exception as e:
                 logger.warning(f"⚠️ Error usando OSRM: {str(e)}")
             
