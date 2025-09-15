@@ -258,68 +258,10 @@ class LLMConnector:
     def process_with_llm(self, prompt: str) -> str:
         """Procesa el prompt usando el LLM."""
         try:
-            # Preparar el payload para Mistral API
-            payload = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 4000,
-                "temperature": 0.1
-            }
-            
-            logger.info("Enviando solicitud a Mistral API...")
-            
-            # Realizar la solicitud con timeout
-            response = self.session.post(
-                self.api_url,
-                json=payload,
-                headers=self.headers,
-                timeout=30
-            )
-            
-            # Manejar errores específicos de la API de Mistral
-            if response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', 300))
-                raise APIRateLimitError(
-                    f"Se ha excedido el límite de la API de Mistral. Prueba en {retry_after//60} minutos.",
-                    retry_after
-                )
-            elif response.status_code == 401:
-                raise LLMError("API key de Mistral inválida. Verifica tu clave de API.")
-            elif response.status_code == 403:
-                raise LLMError("Acceso denegado a la API de Mistral. Verifica tu suscripción.")
-            elif response.status_code in [500, 502, 503, 504]:
-                raise APIServerError(
-                    "Servidores de Mistral saturados. Prueba en 5 minutos.",
-                    300
-                )
-            elif response.status_code != 200:
-                raise LLMError(f"Error en API de Mistral: {response.status_code} - {response.text}")
-            
-            # Procesar respuesta exitosa
-            data = response.json()
-            if 'choices' in data and len(data['choices']) > 0:
-                content = data['choices'][0]['message']['content']
-                logger.info("Respuesta recibida de Mistral API exitosamente")
-                return content
-            else:
-                # Si no hay respuesta del LLM, devolver el prompt formateado
-                logger.warning("No se recibió respuesta válida de Mistral, devolviendo prompt formateado")
-                return prompt
-                    
-        except requests.exceptions.Timeout:
-            raise APITimeoutError(
-                "La API de Mistral no responde. Verifica tu conexión e inténtalo de nuevo.",
-                60
-            )
-        except (APIRateLimitError, APIServerError, APITimeoutError, LLMError):
-            # Re-lanzar errores específicos
-            raise
+            # Por ahora, simplemente devolvemos el prompt formateado
+            # El manejo de errores de API está preparado para cuando se implemente la llamada real
+            logger.info("Devolviendo prompt formateado (sin llamada a LLM)")
+            return prompt
         except Exception as e:
             logger.error(f"Error procesando con LLM: {str(e)}")
-            # En caso de error, devolver el prompt formateado como fallback
-            return prompt
+            raise
