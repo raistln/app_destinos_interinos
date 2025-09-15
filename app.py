@@ -104,7 +104,7 @@ def render_buy_me_coffee():
             <a href="https://www.buymeacoffee.com/samumarfon" target="_blank">
                 <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" 
                      alt="Buy Me A Coffee" 
-                     style="height: 60px !important;width: 217px !important;">
+                     style="height: 50px !important;width: 200px !important;">
             </a>
         </div>
     """, unsafe_allow_html=True)
@@ -255,7 +255,16 @@ def main():
         
         **Desarrollado por:** [Samuel Martín Fonseca](https://www.linkedin.com/in/samuel-mart%C3%ADn-fonseca-74014b17/)
         """)
+    with st.expander("🔑 Cómo obtener una Clave API de Mistral"):
+        st.markdown("""
+        Para usar esta aplicación, necesitas una clave API de Mistral. Sigue estos pasos para conseguirla:
     
+        1.  **Accede a la plataforma de Mistral:** Ve a [mistral.ai](https://mistral.ai/) y haz clic en el botón **"Try the API"** para registrarte.
+        2.  **Ve a "Claves API":** Una vez dentro, en el menú de la izquierda, navega a **"Espacio de Trabajo"** y selecciona **"Claves API"**.
+        3.  **Crea una nueva clave:** Haz clic en **"Crear nueva clave"**, dale un nombre y sigue los pasos.
+    4.  **Guarda tu clave:** La clave se mostrará una sola vez. **Cópiala y guárdala en un lugar seguro** para poder usarla en la aplicación.
+    
+    """)
     # Renderizar sidebar y obtener configuración
     mistral_api_key, provincias_seleccionadas, tipo_centro, modo_test = render_sidebar()
     
